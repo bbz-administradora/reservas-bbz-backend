@@ -1,0 +1,395 @@
+*, ::before, ::after {
+  --tw-border-spacing-x: 0;
+  --tw-border-spacing-y: 0;
+  --tw-translate-x: 0;
+  --tw-translate-y: 0;
+  --tw-rotate: 0;
+  --tw-skew-x: 0;
+  --tw-skew-y: 0;
+  --tw-scale-x: 1;
+  --tw-scale-y: 1;
+  --tw-pan-x:  ;
+  --tw-pan-y:  ;
+  --tw-pinch-zoom:  ;
+  --tw-scroll-snap-strictness: proximity;
+  --tw-gradient-from-position:  ;
+  --tw-gradient-via-position:  ;
+  --tw-gradient-to-position:  ;
+  --tw-ordinal:  ;
+  --tw-slashed-zero:  ;
+  --tw-numeric-figure:  ;
+  --tw-numeric-spacing:  ;
+  --tw-numeric-fraction:  ;
+  --tw-ring-inset:  ;
+  --tw-ring-offset-width: 0px;
+  --tw-ring-offset-color: #fff;
+  --tw-ring-color: rgb(59 130 246 / 0.5);
+  --tw-ring-offset-shadow: 0 0 #0000;
+  --tw-ring-shadow: 0 0 #0000;
+  --tw-shadow: 0 0 #0000;
+  --tw-shadow-colored: 0 0 #0000;
+  --tw-blur:  ;
+  --tw-brightness:  ;
+  --tw-contrast:  ;
+  --tw-grayscale:  ;
+  --tw-hue-rotate:  ;
+  --tw-invert:  ;
+  --tw-saturate:  ;
+  --tw-sepia:  ;
+  --tw-drop-shadow:  ;
+  --tw-backdrop-blur:  ;
+  --tw-backdrop-brightness:  ;
+  --tw-backdrop-contrast:  ;
+  --tw-backdrop-grayscale:  ;
+  --tw-backdrop-hue-rotate:  ;
+  --tw-backdrop-invert:  ;
+  --tw-backdrop-opacity:  ;
+  --tw-backdrop-saturate:  ;
+  --tw-backdrop-sepia:  ;
+  --tw-contain-size:  ;
+  --tw-contain-layout:  ;
+  --tw-contain-paint:  ;
+  --tw-contain-style: ;
+}
+
+::backdrop {
+  --tw-border-spacing-x: 0;
+  --tw-border-spacing-y: 0;
+  --tw-translate-x: 0;
+  --tw-translate-y: 0;
+  --tw-rotate: 0;
+  --tw-skew-x: 0;
+  --tw-skew-y: 0;
+  --tw-scale-x: 1;
+  --tw-scale-y: 1;
+  --tw-pan-x:  ;
+  --tw-pan-y:  ;
+  --tw-pinch-zoom:  ;
+  --tw-scroll-snap-strictness: proximity;
+  --tw-gradient-from-position:  ;
+  --tw-gradient-via-position:  ;
+  --tw-gradient-to-position:  ;
+  --tw-ordinal:  ;
+  --tw-slashed-zero:  ;
+  --tw-numeric-figure:  ;
+  --tw-numeric-spacing:  ;
+  --tw-numeric-fraction:  ;
+  --tw-ring-inset:  ;
+  --tw-ring-offset-width: 0px;
+  --tw-ring-offset-color: #fff;
+  --tw-ring-color: rgb(59 130 246 / 0.5);
+  --tw-ring-offset-shadow: 0 0 #0000;
+  --tw-ring-shadow: 0 0 #0000;
+  --tw-shadow: 0 0 #0000;
+  --tw-shadow-colored: 0 0 #0000;
+  --tw-blur:  ;
+  --tw-brightness:  ;
+  --tw-contrast:  ;
+  --tw-grayscale:  ;
+  --tw-hue-rotate:  ;
+  --tw-invert:  ;
+  --tw-saturate:  ;
+  --tw-sepia:  ;
+  --tw-drop-shadow:  ;
+  --tw-backdrop-blur:  ;
+  --tw-backdrop-brightness:  ;
+  --tw-backdrop-contrast:  ;
+  --tw-backdrop-grayscale:  ;
+  --tw-backdrop-hue-rotate:  ;
+  --tw-backdrop-invert:  ;
+  --tw-backdrop-opacity:  ;
+  --tw-backdrop-saturate:  ;
+  --tw-backdrop-sepia:  ;
+  --tw-contain-size:  ;
+  --tw-contain-layout:  ;
+  --tw-contain-paint:  ;
+  --tw-contain-style: ;
+}
+
+.m-0 {
+  margin: 0px
+}
+
+.mx-0 {
+  margin-left: 0px;
+  margin-right: 0px
+}
+
+.mx-auto {
+  margin-left: auto;
+  margin-right: auto
+}
+
+.my-0 {
+  margin-top: 0px;
+  margin-bottom: 0px
+}
+
+.my-4 {
+  margin-top: 1rem;
+  margin-bottom: 1rem
+}
+
+.my-\[12px\] {
+  margin-top: 12px;
+  margin-bottom: 12px
+}
+
+.my-\[16px\] {
+  margin-top: 16px;
+  margin-bottom: 16px
+}
+
+.my-\[24px\] {
+  margin-top: 24px;
+  margin-bottom: 24px
+}
+
+.my-\[26px\] {
+  margin-top: 26px;
+  margin-bottom: 26px
+}
+
+.my-\[32px\] {
+  margin-top: 32px;
+  margin-bottom: 32px
+}
+
+.mb-0 {
+  margin-bottom: 0px
+}
+
+.ml-4 {
+  margin-left: 1rem
+}
+
+.mt-0 {
+  margin-top: 0px
+}
+
+.mt-1 {
+  margin-top: 0.25rem
+}
+
+.mt-10 {
+  margin-top: 2.5rem
+}
+
+.mt-2 {
+  margin-top: 0.5rem
+}
+
+.mt-3 {
+  margin-top: 0.75rem
+}
+
+.mt-4 {
+  margin-top: 1rem
+}
+
+.mt-5 {
+  margin-top: 1.25rem
+}
+
+.mt-\[20px\] {
+  margin-top: 20px
+}
+
+.mt-\[32px\] {
+  margin-top: 32px
+}
+
+.w-\[230px\] {
+  width: 230px
+}
+
+.w-full {
+  width: 100%
+}
+
+.max-w-\[600px\] {
+  max-width: 600px
+}
+
+.max-w-md {
+  max-width: 28rem
+}
+
+.break-all {
+  word-break: break-all
+}
+
+.rounded {
+  border-radius: 0.25rem
+}
+
+.border {
+  border-width: 1px
+}
+
+.border-solid {
+  border-style: solid
+}
+
+.border-amber-200 {
+  --tw-border-opacity: 1;
+  border-color: rgb(253 230 138 / var(--tw-border-opacity, 1))
+}
+
+.border-border {
+  --tw-border-opacity: 1;
+  border-color: rgb(234 234 234 / var(--tw-border-opacity, 1))
+}
+
+.border-muted-foreground\/20 {
+  border-color: rgb(0 0 0 / 0.2)
+}
+
+.border-primary {
+  --tw-border-opacity: 1;
+  border-color: rgb(4 25 59 / var(--tw-border-opacity, 1))
+}
+
+.border-red-200 {
+  --tw-border-opacity: 1;
+  border-color: rgb(254 202 202 / var(--tw-border-opacity, 1))
+}
+
+.bg-accent {
+  --tw-bg-opacity: 1;
+  background-color: rgb(133 120 239 / var(--tw-bg-opacity, 1))
+}
+
+.bg-amber-50 {
+  --tw-bg-opacity: 1;
+  background-color: rgb(255 251 235 / var(--tw-bg-opacity, 1))
+}
+
+.bg-background {
+  --tw-bg-opacity: 1;
+  background-color: rgb(255 255 255 / var(--tw-bg-opacity, 1))
+}
+
+.bg-muted\/10 {
+  background-color: rgb(102 102 102 / 0.1)
+}
+
+.bg-muted\/20 {
+  background-color: rgb(102 102 102 / 0.2)
+}
+
+.bg-muted\/30 {
+  background-color: rgb(102 102 102 / 0.3)
+}
+
+.bg-primary {
+  --tw-bg-opacity: 1;
+  background-color: rgb(4 25 59 / var(--tw-bg-opacity, 1))
+}
+
+.bg-red-50 {
+  --tw-bg-opacity: 1;
+  background-color: rgb(254 242 242 / var(--tw-bg-opacity, 1))
+}
+
+.p-0 {
+  padding: 0px
+}
+
+.p-3 {
+  padding: 0.75rem
+}
+
+.p-4 {
+  padding: 1rem
+}
+
+.p-\[20px\] {
+  padding: 20px
+}
+
+.px-5 {
+  padding-left: 1.25rem;
+  padding-right: 1.25rem
+}
+
+.px-6 {
+  padding-left: 1.5rem;
+  padding-right: 1.5rem
+}
+
+.py-3 {
+  padding-top: 0.75rem;
+  padding-bottom: 0.75rem
+}
+
+.py-5 {
+  padding-top: 1.25rem;
+  padding-bottom: 1.25rem
+}
+
+.text-center {
+  text-align: center
+}
+
+.font-sans {
+  font-family: ui-sans-serif, system-ui, sans-serif, "Apple Color Emoji", "Segoe UI Emoji", "Segoe UI Symbol", "Noto Color Emoji"
+}
+
+.text-\[12px\] {
+  font-size: 12px
+}
+
+.text-\[13px\] {
+  font-size: 13px
+}
+
+.text-\[14px\] {
+  font-size: 14px
+}
+
+.text-\[20px\] {
+  font-size: 20px
+}
+
+.font-bold {
+  font-weight: 700
+}
+
+.font-medium {
+  font-weight: 500
+}
+
+.italic {
+  font-style: italic
+}
+
+.text-foreground {
+  --tw-text-opacity: 1;
+  color: rgb(33 37 41 / var(--tw-text-opacity, 1))
+}
+
+.text-muted {
+  --tw-text-opacity: 1;
+  color: rgb(102 102 102 / var(--tw-text-opacity, 1))
+}
+
+.text-primary {
+  --tw-text-opacity: 1;
+  color: rgb(4 25 59 / var(--tw-text-opacity, 1))
+}
+
+.text-primary-foreground {
+  --tw-text-opacity: 1;
+  color: rgb(255 255 255 / var(--tw-text-opacity, 1))
+}
+
+.text-red-600 {
+  --tw-text-opacity: 1;
+  color: rgb(220 38 38 / var(--tw-text-opacity, 1))
+}
+
+.text-white {
+  --tw-text-opacity: 1;
+  color: rgb(255 255 255 / var(--tw-text-opacity, 1))
+}

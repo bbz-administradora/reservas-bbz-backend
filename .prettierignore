@@ -1,0 +1,8 @@
+node_modules
+package-lock.json
+src/lib/tailwind/styles/tailwind-email.generated.css
+src/swagger.json
+.gitignore
+.vscode
+*.config
+tsconfig.json
