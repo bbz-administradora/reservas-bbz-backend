@@ -4,17 +4,17 @@ API do sistema interno de reserva de espaços da BBZ. O serviço concentra auten
 
 ## Infraestrutura
 
-| Componente      | Desenvolvimento                                       | Produção                                                   |
-| --------------- | ----------------------------------------------------- | ---------------------------------------------------------- |
-| API             | `http://localhost:3334`                               | `https://backend.bbz.com.br` (Render)                      |
-| Swagger UI      | `http://localhost:3334/docs`                          | `https://backend.bbz.com.br/docs`                          |
-| Health check    | `http://localhost:3334/v1/public/infra/server/health` | `https://backend.bbz.com.br/v1/public/infra/server/health` |
-| PostgreSQL      | Docker, PostgreSQL 16 em `localhost:25432`            | Supabase                                                   |
-| Frontend        | `http://localhost:3001`                               | `https://app.bbz.com.br` (Vercel)                          |
-| E-mail          | Ethereal                                              | Brevo SMTP Relay                                           |
-| Objetos/imagens | AWS S3                                                | AWS S3                                                     |
-| OAuth           | Google OAuth 2.0                                      | Google OAuth 2.0                                           |
-| Fechaduras      | TTLock/DLOCK API                                      | TTLock/DLOCK API                                           |
+| Componente      | Desenvolvimento                                       | Produção                                                               |
+| --------------- | ----------------------------------------------------- | ---------------------------------------------------------------------- |
+| API             | `http://localhost:3334`                               | `https://api-sistema-reserva.bbz.com.br` (Render)                      |
+| Swagger UI      | `http://localhost:3334/docs`                          | `https://api-sistema-reserva.bbz.com.br/docs`                          |
+| Health check    | `http://localhost:3334/v1/public/infra/server/health` | `https://api-sistema-reserva.bbz.com.br/v1/public/infra/server/health` |
+| PostgreSQL      | Docker, PostgreSQL 16 em `localhost:25432`            | Supabase                                                               |
+| Frontend        | `http://localhost:3001`                               | `https://app-sistema-reserva.bbz.com.br` (Vercel)                      |
+| E-mail          | Ethereal                                              | Brevo SMTP Relay                                                       |
+| Objetos/imagens | AWS S3                                                | AWS S3                                                                 |
+| OAuth           | Google OAuth 2.0                                      | Google OAuth 2.0                                                       |
+| Fechaduras      | TTLock/DLOCK API                                      | TTLock/DLOCK API                                                       |
 
 O Swagger é aberto em desenvolvimento e protegido por Basic Auth em produção. As credenciais são definidas por `API_DOC_USER` e `API_DOC_PASSWORD`.
 
@@ -91,7 +91,7 @@ O frontend deve ser iniciado depois que a API e o Swagger local estiverem dispon
 
 O backend é publicado no Render com build `npm install && npm run build` e start `npm start`. O banco e as migrações de produção apontam para o Supabase; não execute `seed` nem `migration:up` contra produção sem revisão explícita do alvo.
 
-O domínio `backend.bbz.com.br` deve apontar para o serviço Render. CORS aceita o site institucional, o frontend administrativo e o host técnico configurado. Cookies usam o domínio `.bbz.com.br`, permitindo autenticação entre `app.bbz.com.br` e `backend.bbz.com.br`.
+O domínio `api-sistema-reserva.bbz.com.br` deve apontar para o serviço Render. CORS aceita o site institucional, o frontend administrativo e o host técnico configurado. Cookies usam o domínio `.bbz.com.br`, permitindo autenticação entre `app-sistema-reserva.bbz.com.br` e `api-sistema-reserva.bbz.com.br`.
 
 Os jobs vivem no processo da API. Portanto, o serviço Render precisa permanecer ativo e com uma única instância de scheduler, ou os jobs serão interrompidos/duplicados. Alterações no callback do Google exigem atualização correspondente no Google Cloud Console.
 
