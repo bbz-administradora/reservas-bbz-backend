@@ -19,6 +19,7 @@
     "services:down": "docker compose -f src/infra/compose.yaml down",
     "migration:create": "node-pg-migrate --migrations-dir src/infra/migrations create",
     "migration:up": "node-pg-migrate --migrations-dir src/infra/migrations --envPath .env up",
+    "migrate:up": "node-pg-migrate --migrations-dir src/infra/migrations --envPath /etc/secrets/.env.prod up",
     "seed": "tsx src/infra/scripts/seed.ts",
     "wait-for-postgres": "tsx src/infra/scripts/wait-for-postgres.ts",
     "tailwind:generate": "npx tailwindcss -i ./src/lib/tailwind/styles/globals.css -o ./src/lib/tailwind/styles/tailwind-email.generated.css",
