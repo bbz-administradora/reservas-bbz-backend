@@ -80,7 +80,6 @@ O frontend deve ser iniciado depois que a API e o Swagger local estiverem dispon
 | `npm run services:down`              | Remove o container; o volume nomeado é preservado.        |
 | `npm run migration:create -- <nome>` | Cria uma migração em `src/infra/migrations`.              |
 | `npm run migration:up`               | Aplica migrações usando `.env`.                           |
-| `npm run migrate:up`                 | Aplica migrações de produção usando o Secret File.        |
 | `npm run seed`                       | Garante usuários e contas técnicas no banco configurado.  |
 | `npm run wait-for-postgres`          | Aguarda o container local aceitar conexões.               |
 | `npm run tailwind:generate`          | Regenera o CSS usado pelos templates de e-mail.           |
@@ -90,7 +89,7 @@ O frontend deve ser iniciado depois que a API e o Swagger local estiverem dispon
 
 ## Produção
 
-O backend é publicado no Render com build `npm install && npm run build`, pre-deploy `npm run migrate:up` e start `npm start`. O pre-deploy lê `/etc/secrets/.env.prod` e aplica as migrações no Supabase antes de ativar a nova versão. Não execute `seed` nem comandos de migração contra produção sem revisão explícita do alvo.
+O backend é publicado no Render com build `npm install && npm run build` e start `npm start`. O banco e as migrações de produção apontam para o Supabase; não execute `seed` nem `migration:up` contra produção sem revisão explícita do alvo.
 
 O domínio `backend.bbz.com.br` deve apontar para o serviço Render. CORS aceita o site institucional, o frontend administrativo e o host técnico configurado. Cookies usam o domínio `.bbz.com.br`, permitindo autenticação entre `app.bbz.com.br` e `backend.bbz.com.br`.
 
