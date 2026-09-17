@@ -8,7 +8,7 @@ export function HeaderEmail() {
     <Section className="bg-accent p-[20px] text-center">
       <Link target="_blank" rel="noopener noreferrer" href={host.webAdmin}>
         <Img
-          src={`${env.PUBLIC_BUCKET}/email/logo-horizontal-primary.png`}
+          src={`${env.ASSETS_BASE_URL}/email/logo-horizontal-primary.png`}
           width="77"
           height="77"
           alt="logo BBZ"

@@ -62,11 +62,26 @@ const envSchema = z.object({
   EMAIL_FROM: z.string(), // Formato: "Nome" <email@dominio.com>
   EMAIL_CLIENT: z.string().email(),
 
-  // AWS S3 configuration
+  // Storage configuration
+  // Seleciona o adapter de storage em runtime. Permite cutover e rollback da
+  // migração S3 -> Supabase por variável de ambiente, sem deploy de código.
+  STORAGE_DRIVER: z.enum(['s3', 'supabase']).default('s3'),
+
+  // AWS S3 configuration (driver 's3')
   PUBLIC_BUCKET: z.string(),
   S3_REGION: z.string(),
   S3_ACCESS_KEY: z.string(),
   S3_SECRET_KEY: z.string(),
+
+  // Supabase Storage configuration (driver 'supabase')
+  // Obrigatórias quando STORAGE_DRIVER=supabase, ver superRefine abaixo.
+  SUPABASE_URL: z.string().url().optional(),
+  SUPABASE_SERVICE_ROLE_KEY: z.string().optional(),
+  SUPABASE_STORAGE_BUCKET: z.string().default('reservas-assets'),
+
+  // Base pública dos assets estáticos (ícones de e-mail, SVG de erro, OG).
+  // Servidos pelo public/ do front. Sem barra no final.
+  ASSETS_BASE_URL: z.string().url(),
 
   // Google Cloud OAuth configuration
   GOOGLE_CLIENT_ID: z.string(),
@@ -87,7 +102,33 @@ const envSchema = z.object({
   DLOCK_PASSWORD: z.string(),
 })
 
-const _env = envSchema.safeParse(process.env)
+/**
+ * Falha no boot, e não no primeiro upload, quando o driver de storage estiver
+ * ligado no Supabase sem as credenciais correspondentes.
+ */
+const envSchemaWithStorageRules = envSchema.superRefine((values, ctx) => {
+  if (values.STORAGE_DRIVER !== 'supabase') {
+    return
+  }
+
+  const obrigatorias = [
+    'SUPABASE_URL',
+    'SUPABASE_SERVICE_ROLE_KEY',
+    'SUPABASE_STORAGE_BUCKET',
+  ] as const
+
+  for (const chave of obrigatorias) {
+    if (!values[chave]) {
+      ctx.addIssue({
+        code: z.ZodIssueCode.custom,
+        path: [chave],
+        message: `${chave} é obrigatória quando STORAGE_DRIVER=supabase.`,
+      })
+    }
+  }
+})
+
+const _env = envSchemaWithStorageRules.safeParse(process.env)
 
 if (!_env.success) {
   console.error('💥 Environment variables are not valid:', _env.error.format())

@@ -5,6 +5,7 @@ import { database } from './infra/database'
 import { env } from './infra/env'
 import { InternalServerError } from './infra/errors'
 import { host } from './infra/hosts'
+import { describeStorage } from './repositories/storage-factory'
 
 // Função para fechar o pool quando a aplicação é encerrada
 function gracefulShutdown() {
@@ -65,7 +66,8 @@ app
       fetchAndSaveSwaggerJson()
     }
 
-    console.log(`\n⚡ Server is running on port ${env.API_PORT} ⚡\n`)
+    console.log(`\n⚡ Server is running on port ${env.API_PORT} ⚡`)
+    console.log(`📦 Storage: ${describeStorage()}\n`)
   })
 
 process.on('SIGINT', gracefulShutdown)

@@ -18,7 +18,7 @@ import {
 } from '@/middlewares/validate-user-account'
 import { verifyJWT, verifyJWTSchema } from '@/middlewares/verify-jwt'
 import { imageUploadSchema, uploadImage } from '@/models/image/image-use-case'
-import { S3StorageAdapter } from '@/repositories/s3/s3-storage-repository'
+import { createStorageRepository } from '@/repositories/storage-factory'
 import {
   imageUploadQuerySchema,
   imageUploadResponseSchema,
@@ -27,7 +27,7 @@ import { FastifyInstance } from 'fastify'
 import { ZodTypeProvider } from 'fastify-type-provider-zod'
 
 export function createDependencies() {
-  const storageRepository = new S3StorageAdapter()
+  const storageRepository = createStorageRepository()
 
   return {
     storageRepository,

@@ -14,7 +14,7 @@ import {
   spaceQrcodeUseCaseSchema,
 } from '@/models/space/space-qrcode-use-case'
 import { PgSpacesRepository } from '@/repositories/pg/pg-spaces-repository'
-import { S3StorageAdapter } from '@/repositories/s3/s3-storage-repository'
+import { createStorageRepository } from '@/repositories/storage-factory'
 import {
   spaceQrcodeParamsSchema,
   spaceQrcodeResponseSchema,
@@ -24,7 +24,7 @@ import { ZodTypeProvider } from 'fastify-type-provider-zod'
 
 export function createDependencies() {
   const spaceRepository = new PgSpacesRepository()
-  const storageRepository = new S3StorageAdapter()
+  const storageRepository = createStorageRepository()
 
   return { spaceRepository, storageRepository }
 }

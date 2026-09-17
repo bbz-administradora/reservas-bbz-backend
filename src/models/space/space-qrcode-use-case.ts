@@ -5,8 +5,8 @@ import {
 } from '@/@types/http-errors-schema'
 import { BadRequestError, NotFoundError } from '@/infra/errors'
 import { host } from '@/infra/hosts'
+import { IStorageAdapter } from '@/repositories/base/storage-repository'
 import { PgSpacesRepository } from '@/repositories/pg/pg-spaces-repository'
-import { S3StorageAdapter } from '@/repositories/s3/s3-storage-repository'
 import {
   SpaceQrcodeParamsInput,
   SpaceQrcodeResponse,
@@ -19,7 +19,7 @@ interface InputProps {
 
 interface Dependencies {
   spaceRepository: PgSpacesRepository
-  storageRepository: S3StorageAdapter
+  storageRepository: IStorageAdapter
 }
 
 export async function spaceQrcodeUseCase(

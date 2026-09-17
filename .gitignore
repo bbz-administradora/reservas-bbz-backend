@@ -3,5 +3,9 @@ node_modules
 build
 .env
 .env.prod
+*.env
 .vscode
 tmp
+
+# Export do bucket S3 durante a migração (spec 01)
+export-s3/

@@ -107,7 +107,7 @@ export function FooterEmail() {
                 href={env.FACEBOOK_URL}
               >
                 <Img
-                  src={`${env.PUBLIC_BUCKET}/email/facebook-icon-email.png`}
+                  src={`${env.ASSETS_BASE_URL}/email/facebook-icon-email.png`}
                   width="30"
                   height="30"
                   alt="Facebook BBZ"
@@ -123,7 +123,7 @@ export function FooterEmail() {
                 href={env.INSTAGRAM_URL}
               >
                 <Img
-                  src={`${env.PUBLIC_BUCKET}/email/instagram-icon-email.png`}
+                  src={`${env.ASSETS_BASE_URL}/email/instagram-icon-email.png`}
                   width="30"
                   height="30"
                   alt="Instagram BBZ"
@@ -139,7 +139,7 @@ export function FooterEmail() {
                 href={host.web}
               >
                 <Img
-                  src={`${env.PUBLIC_BUCKET}/email/website-icon-email.png`}
+                  src={`${env.ASSETS_BASE_URL}/email/website-icon-email.png`}
                   width="30"
                   height="30"
                   alt="Clicar para acessar o site da BBZ Gestão"
@@ -155,7 +155,7 @@ export function FooterEmail() {
                 href={`mailto: ${env.EMAIL_CONTACT}`}
               >
                 <Img
-                  src={`${env.PUBLIC_BUCKET}/email/mail-icon-email.png`}
+                  src={`${env.ASSETS_BASE_URL}/email/mail-icon-email.png`}
                   width="30"
                   height="30"
                   alt="Clicar para mandar email para BBZ Gestão"
@@ -171,7 +171,7 @@ export function FooterEmail() {
                 href={`https://wa.me/${env.WHATSAPP_CONTACT}`}
               >
                 <Img
-                  src={`${env.PUBLIC_BUCKET}/email/whatsapp-icon-email.png`}
+                  src={`${env.ASSETS_BASE_URL}/email/whatsapp-icon-email.png`}
                   width="30"
                   height="30"
                   alt="Clicar para mandar WhatsApp para BBZ Gestão"

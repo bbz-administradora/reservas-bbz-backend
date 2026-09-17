@@ -16,8 +16,44 @@
 
 import { BadRequestErrorSchema } from '@/@types/http-errors-schema'
 import { BadRequestError } from '@/infra/errors'
-import { S3StorageAdapter } from '@/repositories/s3/s3-storage-repository'
+import { IStorageAdapter } from '@/repositories/base/storage-repository'
 import { FastifyRequest } from 'fastify'
+
+// Raiz obrigatória de toda chave de imagem no bucket. Imposta pelo servidor,
+// nunca pelo cliente.
+const PREFIXO_RAIZ = 'images'
+
+/**
+ * Rejeita segmento de caminho que possa escapar do prefixo images/ ou
+ * produzir chave malformada. Vale para folder, group e subtitle, porque os
+ * três entram na composição da chave.
+ */
+function validarSegmento(
+  valor: string | undefined,
+  campo: string,
+  contexto: Record<string, unknown>,
+): void {
+  if (valor === undefined) {
+    return
+  }
+
+  const invalido =
+    valor.trim() === '' ||
+    valor.startsWith('/') ||
+    valor.endsWith('/') ||
+    valor.includes('//') ||
+    valor.includes('\\') ||
+    valor.split('/').some((parte) => parte === '.' || parte === '..')
+
+  if (invalido) {
+    throw new BadRequestError({
+      message: `Valor inválido para "${campo}"`,
+      action:
+        'Use apenas nomes simples, sem "..", sem barra no início ou no fim e sem barras duplicadas',
+      details: { where: 'image.upload', campo, valor, ...contexto },
+    })
+  }
+}
 
 // Interface para upload de imagem
 export interface UploadImageInput {
@@ -36,7 +72,7 @@ export interface DeleteImageInput {
 
 // Interface de dependências
 interface Dependencies {
-  storageRepository: S3StorageAdapter
+  storageRepository: IStorageAdapter
 }
 
 /**
@@ -74,6 +110,11 @@ export async function uploadImage(
     })
   }
 
+  // 📌 Validar os segmentos que compõem a chave antes de tocar no storage
+  validarSegmento(folder, 'folder', { group, subtitle })
+  validarSegmento(group, 'group', { folder, subtitle })
+  validarSegmento(subtitle, 'subtitle', { folder, group })
+
   // 📌 Gerar caminho do arquivo e fazer upload
   let bucketPath: string
   try {
@@ -96,7 +137,7 @@ export async function uploadImage(
     }
 
     // Salvar na estrutura "images/{bucketPath}"
-    const fullPath = `images/${bucketPath}`
+    const fullPath = `${PREFIXO_RAIZ}/${bucketPath}`
 
     await deps.storageRepository.uploadFile(fullPath, buffer, 'image/webp')
 
@@ -138,6 +179,23 @@ export async function deleteImage(
     throw new BadRequestError({
       message: 'Caminho da imagem não fornecido',
       action: 'Envie o caminho da imagem a ser excluída',
+      details: {
+        where: 'image.delete',
+        imagePath,
+      },
+    })
+  }
+
+  // 📌 Confinar a exclusão à árvore de imagens. Sem isso, qualquer usuário
+  // autenticado consegue apagar qualquer objeto do bucket, inclusive assets
+  // estáticos e QR codes.
+  if (
+    !imagePath.startsWith(`${PREFIXO_RAIZ}/`) ||
+    imagePath.split('/').some((parte) => parte === '.' || parte === '..')
+  ) {
+    throw new BadRequestError({
+      message: 'Caminho da imagem inválido',
+      action: `O caminho deve começar com "${PREFIXO_RAIZ}/" e não pode conter ".."`,
       details: {
         where: 'image.delete',
         imagePath,
