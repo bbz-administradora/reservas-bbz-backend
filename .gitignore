@@ -9,3 +9,9 @@ tmp
 
 # Export do bucket S3 durante a migração (spec 01)
 export-s3/
+supabase/.temp
+
+.vercel
+
+.vercel
+.env*
