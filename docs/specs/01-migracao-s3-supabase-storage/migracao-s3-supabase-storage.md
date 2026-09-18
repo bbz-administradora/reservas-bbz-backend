@@ -3,22 +3,23 @@
 Status: Implementation Ready
 Complexidade: M
 Responsável: Matheus Galdino
-Versão: 1.0
-Atualizado em: 2026-09-17
+Versão: 1.1
+Atualizado em: 2026-09-18
 
 ## 0. Pontos para revisão
 
 1. **A chave do objeto não muda.** O banco guarda caminho relativo (`images/espacos/...`) em 131 linhas de `spaces`, nunca URL absoluta. Preservando o layout de chaves no bucket novo, a migração não escreve uma única linha no banco — o cutover é troca de variável de ambiente. Isso é o que torna o rollback trivial e é a decisão que sustenta todo o resto da spec.
 2. **A `IStorageAdapter` já é compatível com o Supabase; o que está quebrado é o uso dela.** A interface não muda em nenhuma assinatura. O impedimento real é que as use cases tipam contra a classe concreta `S3StorageAdapter` (§2), então hoje não existe ponto de troca. Corrigir esse acoplamento é a Fase 1 e é pré-requisito de tudo.
 3. **Dois defeitos pré-existentes aparecem no caminho e precisam de decisão**: o endpoint de delete aceita qualquer caminho do bucket sem restrição de prefixo nem de dono (RB-3), e o front referencia dois arquivos de Open Graph que não existem no bucket (§8). Nenhum dos dois é causado por esta migração; ambos ficam mais baratos de corrigir durante ela.
+4. **Mudança da v1.1 — os 9 estáticos ficam no bucket, não no `public/` do front.** Na v1.0 eles iam para o repositório do front. Isso amarrava a URL dos ícones de e-mail ao domínio do front e tornava cada ajuste de asset um deploy do front para poder testar o back-end. Com todos os 199 objetos no mesmo bucket e a chave preservada, `ASSETS_BASE_URL` e `NEXT_PUBLIC_BUCKET` passam a ter o mesmo valor, os dois repositórios ficam independentes e a hipótese H-2 (§14) deixa de existir.
 
 ## 1. Resumo
 
 O back-end grava e apaga imagens em um bucket S3 (`gestao-bbz-app-assets`) através de um único adapter. O objetivo é passar esse armazenamento para o Supabase Storage, consolidando a infraestrutura no Supabase que já hospeda o banco, sem interromper o serviço e sem reescrever referências no banco.
 
-A solução: implementar um segundo adapter (`SupabaseStorageAdapter`) sobre a interface `IStorageAdapter` que já existe, corrigir o acoplamento que hoje impede a troca, e fazer o cutover por variável de ambiente. Os 190 objetos dinâmicos (imagens de espaço e QR codes) vão para um bucket público do Supabase com as chaves idênticas; os 9 objetos estáticos (ícones de e-mail, SVG de erro, imagem de Open Graph) saem do storage e passam a ser versionados no `public/` do front.
+A solução: implementar um segundo adapter (`SupabaseStorageAdapter`) sobre a interface `IStorageAdapter` que já existe, corrigir o acoplamento que hoje impede a troca, e fazer o cutover por variável de ambiente. Os 199 objetos em uso — 190 dinâmicos (imagens de espaço e QR codes) e 9 estáticos (ícones de e-mail, SVG de erro, imagem de Open Graph) — vão para um bucket público do Supabase com as chaves idênticas às do S3. Os 14 restantes são descarte comprovado e ficam para trás.
 
-Resultado observável: imagens de espaço, QR codes e e-mails continuam abrindo exatamente como hoje, servidos pelo Supabase e pelo front; o bucket S3 pode ser desligado sem nenhuma alteração de dados.
+Resultado observável: imagens de espaço, QR codes e e-mails continuam abrindo exatamente como hoje, agora servidos pelo Supabase; o bucket S3 pode ser desligado sem nenhuma alteração de dados e sem que back-end e front-end dependam um do deploy do outro para servir asset.
 
 ## 2. Contexto e evidências
 
@@ -66,8 +67,8 @@ Levantado em 2026-09-17 via `ListObjectsV2` contra `gestao-bbz-app-assets`: **21
 | `images/espacos/qrcode/` | 138 | 513 KB | dinâmico, gerado pelo back-end | Supabase Storage |
 | `images/espacos/` | 52 | 982 KB | dinâmico, referenciado em `spaces.imagens` | Supabase Storage |
 | `images/salas/` | 12 | 191 KB | dinâmico **órfão** (ver abaixo) | **Não migra** — fica no arquivo morto do S3 |
-| `email/` | 7 | 7 KB | estático, nome fixo em código | `public/` do front |
-| raiz | 2 | 166 KB | estático, nome fixo em código | `public/` do front |
+| `email/` | 7 | 7 KB | estático, nome fixo em código | Supabase Storage |
+| raiz | 2 | 166 KB | estático, nome fixo em código | Supabase Storage |
 
 Observações do inventário que afetam o plano:
 
@@ -79,6 +80,8 @@ Observações do inventário que afetam o plano:
 ### Como os estáticos são consumidos
 
 Seis referências em código do back-end, todas com nome fixo, em [FooterEmail.tsx](../../../src/lib/react-mail/components/FooterEmail.tsx) (linhas 110, 126, 142, 158, 174) e [HeaderEmail.tsx:11](../../../src/lib/react-mail/components/HeaderEmail.tsx#L11), no formato `${env.PUBLIC_BUCKET}/email/<arquivo>.png`. E-mail exige URL absoluta, então esses arquivos precisam continuar acessíveis por HTTP público.
+
+**O front também consome estático pela base do bucket, não pelo `public/`**: [not-found.tsx:28](../../../../reservas-bbz-frontend/src/app/not-found.tsx#L28) monta `${NEXT_PUBLIC_BUCKET}/404-error.svg` e [layout.tsx:35](../../../../reservas-bbz-frontend/src/app/layout.tsx#L35) monta `${NEXT_PUBLIC_BUCKET}/og-1800x1600-bbz.png`. Ou seja, mover esses arquivos para `public/` exigiria **também** reescrever essas referências no front; mantê-los no bucket com a chave preservada não exige nenhuma. Essa é a evidência que sustenta a mudança da v1.1 (§0.4).
 
 No front (`reservas-bbz-frontend`), o consumo é `${env.NEXT_PUBLIC_BUCKET}/${caminhoRelativo}`, com a barra explícita no template — [ImageGallery.tsx:34](../../../../reservas-bbz-frontend/src/components/ImageGallery.tsx#L34), [SpaceCard.tsx:44](../../../../reservas-bbz-frontend/src/components/SpaceCard.tsx#L44), [columns-spaces.tsx:591](../../../../reservas-bbz-frontend/src/components/data-table/spaces/columns-spaces.tsx#L591), [SpaceAddUpdateImageForm.tsx:506](../../../../reservas-bbz-frontend/src/components/forms/SpaceAddUpdateImageForm.tsx#L506), [espacos/[id]/page.tsx:60](../../../../reservas-bbz-frontend/src/app/\(with-layout\)/espacos/\[id\]/page.tsx#L60). Portanto **a base nova não pode terminar em barra**.
 
@@ -120,6 +123,7 @@ No front (`reservas-bbz-frontend`), o consumo é `${env.NEXT_PUBLIC_BUCKET}/${ca
 - **RF-5**: `deleteFiles(prefix)` remove todos os objetos sob o prefixo, percorrendo subpastas, com paginação.
 - **RF-6**: A escolha do adapter em tempo de execução é feita por `STORAGE_DRIVER`, com os valores `s3` e `supabase`.
 - **RF-7**: Os componentes de e-mail passam a montar a URL dos ícones a partir de `ASSETS_BASE_URL`, não mais de `PUBLIC_BUCKET`.
+- **RF-8**: Os 9 estáticos ficam no mesmo bucket dos dinâmicos, com a chave idêntica à do S3 (`email/<arquivo>.png`, `404-error.svg`, `og-1800x1600-bbz.png`). `ASSETS_BASE_URL` é a base pública do bucket, o mesmo valor de `NEXT_PUBLIC_BUCKET` no front. Nenhum asset do sistema depende de deploy do front.
 
 ### Não funcionais
 
@@ -132,7 +136,7 @@ No front (`reservas-bbz-frontend`), o consumo é `${env.NEXT_PUBLIC_BUCKET}/${ca
 
 - **RB-1**: A chave do objeto é idêntica nos dois storages. `images/espacos/qrcode/qrcode-espaco-bbz-<id>.png` no S3 é `images/espacos/qrcode/qrcode-espaco-bbz-<id>.png` no Supabase. Nenhum código pode presumir prefixo de bucket dentro da chave.
 - **RB-2**: O prefixo `images/` continua sendo imposto pelo back-end, não pelo cliente. O `folder` recebido é normalizado antes de compor a chave: segmentos `..` e `.`, barras iniciais e barras duplicadas são rejeitados com `400`.
-- **RB-3**: O `imagePath` do endpoint de delete é rejeitado com `400` quando não começa com `images/`. Isso não resolve a falta de autorização por dono (§4), mas impede que um usuário autenticado apague estático ou objeto fora da árvore de imagens.
+- **RB-3**: O `imagePath` do endpoint de delete é rejeitado com `400` quando não começa com `images/`. Isso não resolve a falta de autorização por dono (§4), mas impede que um usuário autenticado apague estático ou objeto fora da árvore de imagens. Com os 9 estáticos no mesmo bucket (RF-8), essa regra é o que os protege: eles vivem fora de `images/` justamente por isso.
 - **RB-4**: Nenhuma operação desta task escreve em tabela do banco.
 
 ## 6. Experiência e fluxos
@@ -186,7 +190,7 @@ Erros do Supabase chegam como `{ data, error }`, não como exceção. Toda chama
 | `SUPABASE_URL` | `z.string().url()` | 2 | `https://<ref>.supabase.co` |
 | `SUPABASE_SERVICE_ROLE_KEY` | `z.string()` | 2 | Grava e apaga ignorando RLS. Secret File no Render |
 | `SUPABASE_STORAGE_BUCKET` | `z.string().default('reservas-assets')` | 2 | Nome do bucket |
-| `ASSETS_BASE_URL` | `z.string().url()` | 3 | Base dos estáticos servida pelo front. **Sem barra final** |
+| `ASSETS_BASE_URL` | `z.string().url()` | 3 | Base pública dos estáticos. Aponta para o próprio bucket — mesmo valor de `NEXT_PUBLIC_BUCKET`. **Sem barra final** |
 | `PUBLIC_BUCKET` | passa a `.optional()` na Fase 5 | 5 | Sai quando o driver `s3` for removido |
 | `S3_REGION`, `S3_ACCESS_KEY`, `S3_SECRET_KEY` | passam a `.optional()` na Fase 5 | 5 | Idem |
 
@@ -219,13 +223,32 @@ O que se move é objeto de storage, e a chave é preservada (RB-1). Estado atual
 
 Medido em `gestao_reservas_copy` em 2026-09-17: 131 espaços, 131 com `qrcode_url` preenchido, 29 referências de imagem no total, **zero** valores absolutos (`like 'http%'`).
 
-O provisionamento do bucket é registrado como migration Supabase `create_reservas_assets_storage_bucket`, já aplicada em `gestao_reservas_copy`: bucket `reservas-assets`, `public = true`, limite de 5 MB (o maior objeto atual tem 112 KB), MIME restrito a `image/webp`, `image/png`, `image/jpeg`. Uma policy `reservas_assets_public_read` concede `select` a `anon` e `authenticated`. **Nenhuma policy de `insert`, `update` ou `delete` é criada de propósito**: a escrita é exclusiva do back-end via `service_role`, que ignora RLS.
+O provisionamento do bucket é registrado em duas migrations Supabase, ambas já aplicadas em `gestao_reservas_copy`:
 
-O procedimento operacional de cópia dos objetos está em `Desktop/manual-migracao-s3-supabase.md`, fora deste repositório, e não é executado pelo código da aplicação.
+| Migration | O que faz |
+| --- | --- |
+| `create_reservas_assets_storage_bucket` | Cria `reservas-assets`, `public = true`, limite de 5 MB (o maior objeto atual tem 112 KB), MIME restrito a `image/webp`, `image/png`, `image/jpeg`. Policy `reservas_assets_public_read` com `select` para `anon` e `authenticated` |
+| `allow_svg_in_reservas_assets_bucket` | Acrescenta `image/svg+xml` à lista de MIME. Exigida pelo `404-error.svg`, que na v1.1 passa a morar no bucket |
+
+**Nenhuma policy de `insert`, `update` ou `delete` é criada de propósito**: a escrita é exclusiva do back-end via `service_role`, que ignora RLS.
+
+Layout final de chaves do bucket — idêntico ao do S3, menos o descarte:
+
+```
+images/espacos/*.webp              52   dinâmico, escrito pelo back-end
+images/espacos/qrcode/*.png       138   dinâmico, escrito pelo back-end
+email/*.png                         7   estático, só a migração escreve
+404-error.svg                       1   estático, só a migração escreve
+og-1800x1600-bbz.png                1   estático, só a migração escreve
+```
+
+O procedimento operacional de cópia dos objetos está em [docs/manual-migracao-s3-supabase.md](../../manual-migracao-s3-supabase.md) e nos scripts de `scripts/migracao-storage/`, executados fora da aplicação.
 
 ### Segurança e privacidade
 
 O bucket é público para leitura, igual ao S3 de hoje — a exposição não aumenta. Imagem de sala e QR code não são dado sensível, e o QR code aponta para uma rota do front que já exige autenticação.
+
+Aceitar `image/svg+xml` no bucket amplia em tese a superfície, porque SVG servido inline pode carregar script. O risco aqui é nominal e está contido em três pontos: nenhuma policy permite `insert` a `anon` ou `authenticated`, o endpoint de upload só grava `image/webp` e `image/png` sob `images/` (RB-2), e o storage responde em host próprio (`<ref>.supabase.co`), origem distinta da aplicação. O único SVG do bucket é o `404-error.svg` que a migração sobe.
 
 A `service_role` key é uma credencial de administrador do projeto Supabase: ela ignora RLS em **todas** as tabelas, não só em storage. Isso é mais poder do que a chave S3 atual concentrava. Mitigação: entra apenas como Secret File no Render (`/etc/secrets/.env.prod`, padrão já usado por [env.ts:10](../../../src/infra/env.ts#L10)), nunca no repositório, e o adapter é o único módulo que instancia o cliente.
 
@@ -267,12 +290,13 @@ Mantido o padrão de `console.error` com prefixo `💥` já usado nos dois adapt
 
 | Camada | Cenário | Arquivo | Evidência esperada |
 | --- | --- | --- | --- |
-| Script (Node) | Contagem e hash MD5 de cada chave batem entre S3 e Supabase | `scripts/verify-storage-migration.mjs` (novo, ver manual) | Saída `190/190 OK, 0 divergências` |
+| Script (Node) | Contagem e hash MD5 de cada chave batem entre S3 e Supabase | `scripts/migracao-storage/03-verificar.mjs` | Saída `199/199 OK, 0 divergências` |
 | SQL | Nenhuma linha de `spaces` alterada pela migração | consulta de `count`/`max(updated_at)` antes e depois | Mesmo resultado nas duas execuções |
 | SQL | Toda chave referenciada no banco existe no bucket novo | `anti join` entre refs de `spaces` e `storage.objects` | Zero linhas |
 | Manual | Upload de imagem de espaço pelo admin com driver `supabase` | Roteiro §10 CA-1 | Objeto aparece em `storage.objects`; imagem renderiza |
 | Manual | Geração de QR code de espaço sem `qrcode_url` | Roteiro §10 CA-2 | PNG gravado; `qrcode_url` com caminho relativo |
 | Manual | Exclusão de imagem | Roteiro §10 CA-3 | Objeto some do bucket; endpoint devolve `200` |
+| HTTP | Os 9 estáticos respondem `200` com `content-type` de imagem na base pública do bucket | `curl -I` nas 9 chaves | `200`, `image/png` e `image/svg+xml` |
 | Manual | E-mail transacional com ícones | Roteiro §10 CA-6 | Os 6 ícones renderizam no cliente de e-mail |
 | Manual | Rollback por variável de ambiente | Roteiro §10 CA-7 | `STORAGE_DRIVER=s3` + restart volta a gravar no S3 |
 
@@ -283,12 +307,12 @@ Sem superfície visível nova, não há marcadores `data-testid` a declarar.
 - **CA-1** — Dado `STORAGE_DRIVER=supabase`, quando um admin envia imagem em `POST /v1/private/image/s3/upload?folder=espacos&group=espaco`, então a resposta é `201` com `imagePath` no formato `images/espacos/espaco-<timestamp>.webp`, o objeto existe em `storage.objects` com essa chave exata, e nada foi gravado no S3.
 - **CA-2** — Dado um espaço sem `qrcode_url`, quando o endpoint de QR code é chamado, então o PNG é gravado em `images/espacos/qrcode/qrcode-espaco-bbz-<spaceId>.png` no Supabase e `spaces.qrcode_url` recebe **o caminho relativo**, não URL absoluta.
 - **CA-3** — Dado um objeto existente, quando `DELETE /v1/private/image/s3/delete` recebe seu `imagePath`, então a resposta é `200` e o objeto não existe mais no bucket.
-- **CA-4** — Dado o inventário do S3, quando a cópia termina, então as 190 chaves dinâmicas existem no Supabase com MD5 idêntico, e os 12 objetos de `images/salas/` (3 deles vazios) e os 2 marcadores de pasta **não** foram copiados.
+- **CA-4** — Dado o inventário do S3, quando a cópia termina, então as 199 chaves em uso (190 dinâmicas + 9 estáticas) existem no Supabase com MD5 idêntico e com a chave inalterada, e os 12 objetos de `images/salas/` (3 deles vazios) e os 2 marcadores de pasta **não** foram copiados.
 - **CA-5** — Dada a migração concluída, quando se compara `spaces` antes e depois, então `count(*)`, `count(qrcode_url)`, a soma de `jsonb_array_length(imagens)` e o `max(updated_at)` são idênticos.
-- **CA-6** — Dado um e-mail transacional disparado após a Fase 3, quando aberto em Gmail e Outlook, então o logo do cabeçalho e os 5 ícones do rodapé renderizam, servidos por `ASSETS_BASE_URL`.
+- **CA-6** — Dado um e-mail transacional disparado após a Fase 3, quando aberto em Gmail e Outlook, então o logo do cabeçalho e os 5 ícones do rodapé renderizam, servidos por `ASSETS_BASE_URL` apontando para o bucket — sem nenhum deploy do front envolvido.
 - **CA-7** — Dado o driver `supabase` ativo, quando `STORAGE_DRIVER` volta para `s3` e a API reinicia, então um upload novo grava no S3 e o boot loga o driver ativo — sem deploy de código e sem tocar no banco.
 - **CA-8** — Dado `folder=../../etc`, quando o upload é chamado, então a resposta é `400` e nada é gravado (RB-2).
-- **CA-9** — Dado `imagePath=404-error.svg`, quando o delete é chamado, então a resposta é `400` e o objeto permanece (RB-3).
+- **CA-9** — Dado `imagePath=404-error.svg`, quando o delete é chamado, então a resposta é `400` e o objeto permanece no bucket (RB-3). Com os estáticos no mesmo bucket, este critério deixa de ser hipotético: é a proteção real deles.
 - **CA-10** — Dado o front com `NEXT_PUBLIC_BUCKET` apontando para o Supabase, quando a listagem de espaços é aberta, então as imagens renderizam pelo `next/image` sem erro de host não configurado (correção do `remotePatterns`).
 
 ## 11. Rollout e rollback
@@ -301,8 +325,8 @@ Trocar o tipo de `Dependencies.storageRepository` para `IStorageAdapter` em [ima
 Instalar `@supabase/supabase-js`. Criar `src/lib/supabase/index.ts`, `src/repositories/supabase/supabase-storage-repository.ts` e `src/repositories/storage-factory.ts`. Adicionar as variáveis de ambiente com `STORAGE_DRIVER` default `s3`. Aplicar RB-2 e RB-3 nos use cases. Deploy com o driver ainda em `s3`.
 *Skills: `apply-clean-code`.* *Validação: CA-8, CA-9, `npm run lint:eslint:check`, `npm run build`. Produção segue no S3; o código novo está presente e inerte.*
 
-**Fase 3 — Estáticos e cópia dos dinâmicos.**
-Mover os 7 arquivos de `email/` e os 2 da raiz para `reservas-bbz-frontend/public/`, commitar e publicar o front. Trocar as 6 referências de `PUBLIC_BUCKET` para `ASSETS_BASE_URL` nos componentes de e-mail e publicar o back-end. Copiar os 190 objetos dinâmicos para o Supabase e rodar o verificador. O S3 continua servindo tudo; a cópia é aditiva.
+**Fase 3 — Cópia dos 199 objetos (dinâmicos e estáticos) para o bucket.**
+Aplicar a migration `allow_svg_in_reservas_assets_bucket`. Copiar para o Supabase os 190 dinâmicos e os 9 estáticos com a chave preservada (`scripts/migracao-storage/02-subir-supabase.mjs`) e rodar o verificador. Trocar as 6 referências de `PUBLIC_BUCKET` para `ASSETS_BASE_URL` nos componentes de e-mail, com `ASSETS_BASE_URL` apontando para a base pública do bucket, e publicar o back-end. O S3 continua servindo tudo; a cópia é aditiva e não toca no front.
 *Validação: CA-4, CA-6. Ponto de pausa: qualquer divergência no verificador interrompe o rollout aqui, sem impacto, porque nada apontou para o Supabase ainda.*
 
 **Fase 4 — Cutover.**
@@ -311,7 +335,7 @@ Nesta ordem: (a) `sync` incremental final para capturar o que entrou desde a Fas
 **Rollback:** `STORAGE_DRIVER=s3` e `NEXT_PUBLIC_BUCKET` de volta ao S3, com restart. Sem deploy, sem migration. Objetos gravados no Supabase durante a janela precisam ser copiados de volta — daí a janela de observação curta.
 
 **Fase 5 — Limpeza, após 7 dias sem tráfego de leitura no S3 (OBJ-3).**
-Provisionar o bucket no projeto Supabase de produção usando a mesma migration. Remover `src/repositories/s3/`, `src/lib/aws/`, `@aws-sdk/client-s3`, `STORAGE_DRIVER` e as quatro variáveis de S3. Passar o bucket S3 para Glacier por 90 dias antes de excluir — ele ainda guarda os 12 órfãos de `images/salas/`, não migrados.
+Provisionar o bucket no projeto Supabase de produção usando as duas migrations e repetir a cópia dos 199 objetos contra ele. Remover `src/repositories/s3/`, `src/lib/aws/`, `@aws-sdk/client-s3`, `STORAGE_DRIVER` e as quatro variáveis de S3. Passar o bucket S3 para Glacier por 90 dias antes de excluir — ele ainda guarda os 12 órfãos de `images/salas/`, não migrados.
 *Skills: `apply-clean-code`.* *Validação: `npm run lint:eslint:check`, `npm run build`, CA-1 a CA-3 repetidos.*
 
 ## 12. Riscos e trade-offs
@@ -323,6 +347,7 @@ Provisionar o bucket no projeto Supabase de produção usando a mesma migration.
 | Limite de 5 MB e MIME restrito não existiam no S3 | Upload que passava pode ser recusado | Maior objeto atual: 112 KB. O código só envia `image/webp` e `image/png` |
 | `deleteFiles` implementado com semântica recursiva que hoje ninguém exercita | Bug latente só apareceria no primeiro uso | Implementar fiel ao contrato custa pouco agora. Alternativa considerada e descartada: remover o método da interface, o que mudaria o contrato no meio de uma migração |
 | Cópia manual dos objetos, fora de CI | Erro humano ou cópia parcial | Verificador por hash (CA-4) roda antes do cutover, e a Fase 3 é inteiramente reversível |
+| Bucket passa a aceitar `image/svg+xml` | SVG público pode carregar script se aberto direto | Sem policy de `insert` para `anon`/`authenticated`; o endpoint só grava webp e png sob `images/`; host de storage é origem separada da aplicação. Único SVG do bucket é o `404-error.svg` |
 | Migração do front e do back em repositórios separados | Dessincronização na janela de cutover | Ordem explícita na Fase 4: leitura antes da escrita |
 
 ## 13. Decisões e alternativas
@@ -332,7 +357,7 @@ Provisionar o bucket no projeto Supabase de produção usando a mesma migration.
 | Um bucket público com as chaves idênticas | 131 linhas de `spaces` guardam caminho relativo e nenhuma URL absoluta. Preservar a chave reduz a migração a uma troca de env e elimina UPDATE em produção | Buckets por domínio (`espacos`, `qrcodes`) sem o prefixo `images/`: mais limpo, mas exigiria UPDATE em 131 linhas, janela de inconsistência e migration reversa |
 | Adapter nativo com `@supabase/supabase-js` | Alinha com o restante do stack BBZ, remove o `@aws-sdk` e abre caminho para signed URL e RLS sem nova dependência | **Alternativa mínima registrada:** o Supabase expõe endpoint S3-compatível em `https://<ref>.storage.supabase.co/storage/v1/s3` com `forcePathStyle: true`, utilizável pelo `@aws-sdk/client-s3` que já está instalado. Custaria quase nenhuma linha de código, mas manteria a dependência da AWS e o vocabulário de bucket dentro do adapter. **Descartada para a aplicação, mas usada na ferramenta de migração**, onde é justamente o que permite copiar S3 → Supabase com `rclone`/`aws s3 sync` |
 | Seleção por `STORAGE_DRIVER` em vez de troca direta | Torna o rollback uma variável de ambiente (RNF-4) em vez de um deploy de revert | Substituir `S3StorageAdapter` por `SupabaseStorageAdapter` direto nos controllers: menos código, mas rollback vira deploy sob pressão |
-| Estáticos no `public/` do front | 9 arquivos de nome fixo, ~173 KB, que nunca mudam. No git ficam versionados, sem custo de storage e sem depender de credencial | Mantê-los em storage: menor mudança de código, mas continua pagando por arquivo imutável que já poderia estar no repositório |
+| Estáticos no mesmo bucket, com a chave do S3 preservada (**v1.1**) | O front já lê `404-error.svg` e `og-1800x1600-bbz.png` por `${NEXT_PUBLIC_BUCKET}/...` (§2), então o bucket é o destino que não exige reescrever referência nenhuma. E tira do caminho a dependência circular: com os ícones de e-mail no `public/` do front, testar um deploy do back-end passava a exigir um deploy do front | **v1.0: estáticos no `public/` do front.** 9 arquivos imutáveis de ~173 KB versionados no git, sem custo de storage. Descartada: acoplava back e front, amarrava a URL do e-mail ao domínio do front e criava a hipótese H-2 (front servir `public/` sem autenticação), que agora simplesmente não existe |
 | `images/salas/` não migra | Zero referências em `spaces`; 3 dos 12 têm 0 byte; 9 são duplicatas de `images/espacos/` | Migrar tudo por precaução: transportaria lixo comprovado para o storage novo |
 | Interface `IStorageAdapter` mantida sem alteração | Os 4 métodos mapeiam 1:1 para o SDK do Supabase. Mudar assinatura seria custo sem retorno | Redesenhar a interface junto com a migração: acopla duas mudanças e dificulta isolar a causa de qualquer regressão |
 | Sem DBML | A task não cria nem altera modelo persistente (RB-4) | — |
@@ -349,7 +374,7 @@ Provisionar o bucket no projeto Supabase de produção usando a mesma migration.
 | Hipótese | Impacto se errada | Responsável/fonte de validação | Contingência | Bloqueante? |
 | --- | --- | --- | --- | --- |
 | **H-1**: `gestao_reservas_copy` reflete fielmente o schema e o volume de produção | Contagens de §2 e CA-5 estariam erradas | Rodar as mesmas consultas contra prod antes da Fase 4 | Refazer o inventário contra produção; nenhum passo destrutivo depende dele | Não |
-| **H-2**: `app-sistema-reserva.bbz.com.br` serve `public/` sem autenticação, alcançável por cliente de e-mail | Ícones de e-mail quebram para o destinatário | `curl -I https://app-sistema-reserva.bbz.com.br/email/logo-horizontal-primary.png` logo após a Fase 3 | Criar `assets/` no bucket Supabase e apontar `ASSETS_BASE_URL` para lá; o desenho já isola isso numa variável | Não |
+| ~~**H-2**: `app-sistema-reserva.bbz.com.br` serve `public/` sem autenticação, alcançável por cliente de e-mail~~ | — | — | — | **Eliminada na v1.1.** Os estáticos ficam no bucket público do Supabase, que é a própria contingência registrada na v1.0. Verificado por `curl -I` nas 9 chaves: `200` com `image/png` e `image/svg+xml` |
 | **H-3**: Nenhum consumidor externo lê o bucket S3 direto | Cutover quebraria integração desconhecida | Métricas de leitura do S3 durante os 7 dias da Fase 5 | Manter o bucket vivo além da janela | Não |
 
 ## 15. Definition of Ready
@@ -360,4 +385,5 @@ Bloqueios:
 - Nenhum.
 
 Hipóteses aceitas:
-- **H-1**, **H-2** e **H-3** permanecem abertas e não bloqueiam. Nenhuma delas condiciona as Fases 1 e 2, que não alteram comportamento em produção. H-1 é verificada antes da Fase 4 por consulta read-only; H-2 é verificada por `curl` logo após a Fase 3, quando o S3 ainda serve tudo; H-3 é verificada por métrica durante a janela de observação da Fase 5. As três têm contingência registrada e nenhuma exige decisão antes do início da implementação.
+- **H-1** e **H-3** permanecem abertas e não bloqueiam. Nenhuma delas condiciona as Fases 1 e 2, que não alteram comportamento em produção. H-1 é verificada antes da Fase 4 por consulta read-only; H-3 é verificada por métrica durante a janela de observação da Fase 5. As duas têm contingência registrada e nenhuma exige decisão antes do início da implementação.
+- **H-2** foi eliminada na v1.1: com os estáticos no bucket, não existe mais dependência do front servir `public/`.

@@ -1,8 +1,10 @@
-# Manual de migração — AWS S3 → Supabase Storage + `public/` do front
+# Manual de migração — AWS S3 → Supabase Storage
 
 **Sistema:** Reservas BBZ (`reservas-bbz-backend` + `reservas-bbz-frontend`)
 **Spec de referência:** `reservas-bbz-backend/docs/specs/01-migracao-s3-supabase-storage/`
-**Elaborado em:** 17/09/2026
+**Elaborado em:** 17/09/2026 · **Revisado em:** 18/09/2026 (v1.1 da spec)
+
+> **O que mudou na v1.1:** os 9 arquivos estáticos (ícones de e-mail, SVG de 404 e imagem de Open Graph) **não vão mais para o `public/` do front** — vão para o mesmo bucket do Supabase, com a chave preservada. Motivo: com eles no front, a URL dos ícones de e-mail do back-end passava a depender do domínio e do deploy do front, e testar o back-end exigia publicar o front antes. Tudo num bucket só, os dois repositórios ficam independentes.
 
 Este manual é o procedimento operacional. Ele exporta, separa, copia e confere os arquivos. **Ele não altera o código da aplicação** — isso é a spec. Os dois se encontram na Fase 4 (cutover), e o manual diz exatamente onde.
 
@@ -17,7 +19,7 @@ O bucket `gestao-bbz-app-assets` tem **213 objetos, 1,86 MB**. Eles se dividem e
 | Grupo | Qtd | Tamanho | Destino | Por quê |
 | --- | --- | --- | --- | --- |
 | **Dinâmicos** — `images/espacos/**` | **190** | 1.496 KB | Supabase Storage, bucket `reservas-assets` | Gravados pelo back-end em runtime; referenciados no banco |
-| **Estáticos** — `email/*` e raiz | **9** | 173 KB | `reservas-bbz-frontend/public/` | Nome fixo em código, nunca mudam; pertencem ao repositório |
+| **Estáticos** — `email/*` e raiz | **9** | 173 KB | Supabase Storage, **mesmo bucket, mesma chave** | Nome fixo em código; ficam no storage para que nem o back-end nem o front dependam do deploy do outro |
 | **Descarte** — `images/salas/**` + 2 marcadores | **14** | 191 KB | Ficam só no arquivo morto do S3 | Zero referências no banco; 3 são arquivos de 0 byte |
 
 ### Os 190 dinâmicos
@@ -33,19 +35,29 @@ images/espacos/qrcode/    138 arquivos .png    (138 referenciados em spaces.qrco
 
 ### Os 9 estáticos
 
+Vão para o bucket com **a mesma chave que têm no S3** — nada de prefixo novo, nada de `public/`:
+
 ```
-404-error.svg                         →  public/404-error.svg
-og-1800x1600-bbz.png                  →  public/og-1800x1600-bbz.png
-email/logo-horizontal-primary.png     →  public/email/logo-horizontal-primary.png
-email/facebook-icon-email.png         →  public/email/facebook-icon-email.png
-email/instagram-icon-email.png        →  public/email/instagram-icon-email.png
-email/website-icon-email.png          →  public/email/website-icon-email.png
-email/mail-icon-email.png             →  public/email/mail-icon-email.png
-email/whatsapp-icon-email.png         →  public/email/whatsapp-icon-email.png
-email/call-icon-email.png             →  public/email/call-icon-email.png
+404-error.svg                      →  reservas-assets/404-error.svg
+og-1800x1600-bbz.png               →  reservas-assets/og-1800x1600-bbz.png
+email/logo-horizontal-primary.png  →  reservas-assets/email/logo-horizontal-primary.png
+email/facebook-icon-email.png      →  reservas-assets/email/facebook-icon-email.png
+email/instagram-icon-email.png     →  reservas-assets/email/instagram-icon-email.png
+email/website-icon-email.png       →  reservas-assets/email/website-icon-email.png
+email/mail-icon-email.png          →  reservas-assets/email/mail-icon-email.png
+email/whatsapp-icon-email.png      →  reservas-assets/email/whatsapp-icon-email.png
+email/call-icon-email.png          →  reservas-assets/email/call-icon-email.png
 ```
 
+Preservar a chave é o que faz a troca ser só de variável:
+
+- o back-end monta `${ASSETS_BASE_URL}/email/<arquivo>.png` — mesma forma de hoje, só muda a base;
+- o front já lê `${NEXT_PUBLIC_BUCKET}/404-error.svg` e `${NEXT_PUBLIC_BUCKET}/og-1800x1600-bbz.png` (`not-found.tsx`, `layout.tsx`) — **nenhuma linha do front muda**;
+- rollback dos estáticos = apontar `ASSETS_BASE_URL` de volta para a URL do S3.
+
 > `call-icon-email.png` não é referenciado por nenhum componente de e-mail hoje. Migre junto (é 1 KB) e decida depois se apaga.
+
+> **Eles ficam fora de `images/` de propósito.** O endpoint de delete só aceita caminho que comece com `images/` (RB-3 da spec), então nenhum usuário autenticado consegue apagar estático pela API.
 
 ### Os 14 de descarte
 
@@ -66,14 +78,14 @@ O bucket de destino **já foi criado** no projeto `gestao_reservas_copy`:
 | Bucket | `reservas-assets` |
 | Visibilidade | Público (leitura anônima) |
 | Limite por arquivo | 5 MB |
-| MIME permitidos | `image/webp`, `image/png`, `image/jpeg` |
+| MIME permitidos | `image/webp`, `image/png`, `image/jpeg`, `image/svg+xml` |
 | Policy | `reservas_assets_public_read` (`select` para `anon` e `authenticated`) |
-| Migration | `create_reservas_assets_storage_bucket` |
+| Migrations | `create_reservas_assets_storage_bucket` + `allow_svg_in_reservas_assets_bucket` |
 | **Base pública** | `https://kpwxmtqmzzybaolhijxb.supabase.co/storage/v1/object/public/reservas-assets` |
 
 Não existe policy de `insert`, `update` ou `delete` — de propósito. Só a `service_role` escreve.
 
-> **Para produção:** rode a mesma migration no projeto de produção antes da Fase 5 da spec. O SQL está no Anexo B.
+> **Para produção:** rode as duas migrations no projeto de produção antes da Fase 5 da spec e repita a cópia dos 199 objetos contra ele. O SQL consolidado está no Anexo B.
 
 ### O que você precisa ter em mãos
 
@@ -89,12 +101,13 @@ Não existe policy de `insert`, `update` ou `delete` — de propósito. Só a `s
 npm install @supabase/supabase-js
 ```
 
-5. **Duas linhas acrescentadas ao `.env`** do back-end (só para rodar os scripts; a spec formaliza isso no `env.ts` na Fase 2):
+5. **As variáveis de storage no `.env`** do back-end (os scripts leem as três primeiras; `ASSETS_BASE_URL` é o que a aplicação usa para montar a URL dos ícones de e-mail):
 
 ```
 SUPABASE_URL=https://kpwxmtqmzzybaolhijxb.supabase.co
 SUPABASE_SERVICE_ROLE_KEY=cole_a_service_role_key_aqui
 SUPABASE_STORAGE_BUCKET=reservas-assets
+ASSETS_BASE_URL=https://kpwxmtqmzzybaolhijxb.supabase.co/storage/v1/object/public/reservas-assets
 ```
 
 ### Onde colocar os scripts
@@ -174,67 +187,75 @@ Confira a estrutura:
 find export-s3 -type f | wc -l
 ```
 
-Deve dar **211** (190 dinâmicos + 9 estáticos + 12 de `images/salas/`).
+Deve dar **211** (190 dinâmicos + 9 estáticos + 12 de `images/salas/`). Destes, **199 migram** — só `images/salas/` fica para trás.
 
 > **Guarde `export-s3/` fora do repositório** quando terminar — é o seu backup. Acrescente `export-s3/` ao `.gitignore` antes de qualquer commit.
 
 ---
 
-## 4. Passo 2 — Estáticos para o `public/` do front
+## 4. Passo 2 — Liberar `image/svg+xml` no bucket
 
-Nenhum script: são 9 arquivos, entram no git.
+O provisionamento original restringia o MIME a webp, png e jpeg. Um dos estáticos é o `404-error.svg`, e sem essa liberação o upload dele é recusado com `mime type image/svg+xml is not supported`.
 
-```bash
-cd ../reservas-bbz-frontend
-mkdir -p public/email
-cp ../reservas-bbz-backend/export-s3/404-error.svg           public/
-cp ../reservas-bbz-backend/export-s3/og-1800x1600-bbz.png    public/
-cp ../reservas-bbz-backend/export-s3/email/*.png             public/email/
+A mudança está registrada na migration `allow_svg_in_reservas_assets_bucket`:
+
+```sql
+update storage.buckets
+set allowed_mime_types = array['image/webp', 'image/png', 'image/jpeg', 'image/svg+xml']
+where id = 'reservas-assets';
 ```
 
-Confira que são 9 e commite:
+Rode no SQL Editor do projeto ou por `supabase db push`. Para conferir:
 
-```bash
-find public/404-error.svg public/og-1800x1600-bbz.png public/email -type f | wc -l   # 9
-git add public/404-error.svg public/og-1800x1600-bbz.png public/email
-git commit -m "chore: trazer assets estáticos do S3 para o public/"
+```sql
+select id, public, file_size_limit, allowed_mime_types from storage.buckets where id = 'reservas-assets';
 ```
 
-Publique o front e **valide que os arquivos estão servidos**:
-
-```bash
-curl -I https://app-sistema-reserva.bbz.com.br/email/logo-horizontal-primary.png
-curl -I https://app-sistema-reserva.bbz.com.br/404-error.svg
-```
-
-Os dois precisam responder `200` com `content-type` de imagem. Se responderem `401`, `302` ou HTML, o front está protegendo o `public/` — nesse caso **pare** e use o plano B da hipótese H-2 da spec (criar um prefixo `assets/` no bucket Supabase e apontar `ASSETS_BASE_URL` para lá).
-
-> Só depois desse `200` é seguro trocar as 6 referências nos componentes de e-mail (`FooterEmail.tsx` e `HeaderEmail.tsx`) de `PUBLIC_BUCKET` para `ASSETS_BASE_URL`. Isso é código — está na Fase 3 da spec.
+> **Por que isso é seguro aqui.** SVG público pode carregar script se aberto direto no navegador. No bucket, nenhuma policy permite `insert` a `anon`/`authenticated`, o endpoint de upload da API só grava `image/webp` e `image/png` sob `images/`, e o storage responde em host próprio, separado da origem da aplicação. O único SVG do bucket é o que este manual sobe.
 
 ---
 
-## 5. Passo 3 — Copiar os 190 dinâmicos para o Supabase
+## 5. Passo 3 — Copiar os 199 objetos para o Supabase
+
+Um script só, para dinâmicos e estáticos: ele sobe **tudo que está em `export-s3/`, menos `images/salas/`**. A chave de cada objeto é a mesma do S3.
 
 **`scripts/migracao-storage/02-subir-supabase.mjs`**
 
 ```js
+// Sobe para o bucket do Supabase tudo que sai do export local, exceto o
+// descarte (images/salas/**): os 190 dinâmicos de images/espacos/** e os 9
+// estáticos (email/*.png, 404-error.svg, og-1800x1600-bbz.png). A chave é
+// preservada byte a byte, então a base pública do Supabase substitui a do S3
+// sem reescrever caminho em lugar nenhum.
+// Idempotente: pode rodar de novo para o sync incremental antes do cutover.
+// Ver docs/manual-migracao-s3-supabase.md, passo 3.
 import { createClient } from '@supabase/supabase-js'
 import { config } from 'dotenv'
 import { expand } from 'dotenv-expand'
-import { readFile, readdir } from 'node:fs/promises'
+import { readdir, readFile } from 'node:fs/promises'
 import { join, relative } from 'node:path'
 
 expand(config({ path: '.env' }))
 
 const ORIGEM = 'export-s3'
-const PREFIXO = 'images/espacos' // só o que é dinâmico
+// Único grupo que não migra: órfão no banco, 3 arquivos de 0 byte e 9
+// duplicatas de images/espacos/. Fica no arquivo morto do S3.
+const DESCARTE = ['images/salas']
 const BUCKET = process.env.SUPABASE_STORAGE_BUCKET ?? 'reservas-assets'
 
-const MIME = { '.webp': 'image/webp', '.png': 'image/png', '.jpg': 'image/jpeg', '.jpeg': 'image/jpeg' }
+const MIME = {
+  '.webp': 'image/webp',
+  '.png': 'image/png',
+  '.jpg': 'image/jpeg',
+  '.jpeg': 'image/jpeg',
+  '.svg': 'image/svg+xml',
+}
 
-const supabase = createClient(process.env.SUPABASE_URL, process.env.SUPABASE_SERVICE_ROLE_KEY, {
-  auth: { persistSession: false },
-})
+const supabase = createClient(
+  process.env.SUPABASE_URL,
+  process.env.SUPABASE_SERVICE_ROLE_KEY,
+  { auth: { persistSession: false } },
+)
 
 async function listar(dir) {
   const saida = []
@@ -246,19 +267,26 @@ async function listar(dir) {
   return saida
 }
 
-const arquivos = await listar(join(ORIGEM, PREFIXO))
+// Chave POSIX relativa ao export, que é exatamente a chave no bucket.
+const chaveDe = (arquivo) => relative(ORIGEM, arquivo).split('\\').join('/')
+
+const arquivos = (await listar(ORIGEM)).filter(
+  (arquivo) =>
+    !DESCARTE.some((prefixo) => chaveDe(arquivo).startsWith(`${prefixo}/`)),
+)
 console.log(`${arquivos.length} arquivos a enviar para ${BUCKET}`)
 
 let ok = 0
 const falhas = []
 for (const arquivo of arquivos) {
-  const chave = relative(ORIGEM, arquivo).split('\\').join('/') // Windows → chave POSIX
+  const chave = chaveDe(arquivo)
   const ext = chave.slice(chave.lastIndexOf('.')).toLowerCase()
   const buffer = await readFile(arquivo)
 
-  const { error } = await supabase.storage
-    .from(BUCKET)
-    .upload(chave, buffer, { contentType: MIME[ext] ?? 'application/octet-stream', upsert: true })
+  const { error } = await supabase.storage.from(BUCKET).upload(chave, buffer, {
+    contentType: MIME[ext] ?? 'application/octet-stream',
+    upsert: true,
+  })
 
   if (error) falhas.push({ chave, erro: error.message })
   else ok++
@@ -276,7 +304,7 @@ Rode:
 node scripts/migracao-storage/02-subir-supabase.mjs
 ```
 
-**Esperado:** `190 arquivos a enviar` … `OK: 190 | Falhas: 0`
+**Esperado:** `199 arquivos a enviar` … `OK: 199 | Falhas: 0`
 
 O script é **idempotente** (`upsert: true`). Pode rodar de novo à vontade — é exatamente assim que você fará o `sync` incremental antes do cutover.
 
@@ -285,7 +313,7 @@ O script é **idempotente** (`upsert: true`). Pode rodar de novo à vontade — 
 | Sintoma | Causa | O que fazer |
 | --- | --- | --- |
 | `new row violates row-level security policy` | Você usou a `anon`/`publishable` key, não a `service_role` | Confira `SUPABASE_SERVICE_ROLE_KEY` |
-| `mime type ... is not supported` | Extensão fora de webp/png/jpeg | Confira o arquivo; o bucket restringe MIME de propósito |
+| `mime type ... is not supported` | Extensão fora de webp/png/jpeg/svg | Confira o arquivo; o bucket restringe MIME de propósito. Para o `404-error.svg`, é o passo 2 que não foi aplicado |
 | `The object exceeded the maximum allowed size` | Arquivo acima de 5 MB | Não deve ocorrer: o maior objeto atual tem 112 KB |
 | Chave com `\` no Supabase | Caminho do Windows não convertido | O `.split('\\').join('/')` do script trata; se editar, preserve |
 
@@ -298,16 +326,21 @@ Compara **MD5 byte a byte** entre o arquivo local e o que o Supabase serve na UR
 **`scripts/migracao-storage/03-verificar.mjs`**
 
 ```js
+// Confere a cópia comparando o MD5 do arquivo local com o que o Supabase
+// serve na URL pública, para o mesmo conjunto que o 02 envia (dinâmicos +
+// estáticos, sem images/salas/). É a evidência do CA-4 da spec 01 e trava
+// obrigatória antes do cutover.
+// Ver docs/manual-migracao-s3-supabase.md, passo 4.
 import { config } from 'dotenv'
 import { expand } from 'dotenv-expand'
 import { createHash } from 'node:crypto'
-import { readFile, readdir } from 'node:fs/promises'
+import { readdir, readFile } from 'node:fs/promises'
 import { join, relative } from 'node:path'
 
 expand(config({ path: '.env' }))
 
 const ORIGEM = 'export-s3'
-const PREFIXO = 'images/espacos'
+const DESCARTE = ['images/salas']
 const BUCKET = process.env.SUPABASE_STORAGE_BUCKET ?? 'reservas-assets'
 const BASE = `${process.env.SUPABASE_URL}/storage/v1/object/public/${BUCKET}`
 
@@ -323,12 +356,17 @@ async function listar(dir) {
   return saida
 }
 
-const arquivos = await listar(join(ORIGEM, PREFIXO))
+const chaveDe = (arquivo) => relative(ORIGEM, arquivo).split('\\').join('/')
+
+const arquivos = (await listar(ORIGEM)).filter(
+  (arquivo) =>
+    !DESCARTE.some((prefixo) => chaveDe(arquivo).startsWith(`${prefixo}/`)),
+)
 const divergencias = []
 let ok = 0
 
 for (const arquivo of arquivos) {
-  const chave = relative(ORIGEM, arquivo).split('\\').join('/')
+  const chave = chaveDe(arquivo)
   const local = await readFile(arquivo)
   const resposta = await fetch(`${BASE}/${chave}`)
 
@@ -338,7 +376,10 @@ for (const arquivo of arquivos) {
   }
   const remoto = Buffer.from(await resposta.arrayBuffer())
   if (md5(local) !== md5(remoto)) {
-    divergencias.push({ chave, motivo: `MD5 difere (${local.length}B local × ${remoto.length}B remoto)` })
+    divergencias.push({
+      chave,
+      motivo: `MD5 difere (${local.length}B local x ${remoto.length}B remoto)`,
+    })
     continue
   }
   ok++
@@ -350,13 +391,25 @@ divergencias.forEach((d) => console.error(`  ✗ ${d.chave}: ${d.motivo}`))
 process.exit(divergencias.length ? 1 : 0)
 ```
 
-Rode:
-
 ```bash
 node scripts/migracao-storage/03-verificar.mjs
 ```
 
-**Critério de aprovação:** `190/190 OK, 0 divergências`. Qualquer número diferente **interrompe a migração aqui**. Nada apontou para o Supabase ainda, então parar neste ponto não tem impacto nenhum em produção.
+**Critério de aprovação:** `199/199 OK, 0 divergências`. Qualquer número diferente **interrompe a migração aqui**. Nada apontou para o Supabase ainda, então parar neste ponto não tem impacto nenhum em produção.
+
+### Conferência dos 9 estáticos por HTTP
+
+O verificador já cobre os 199 por MD5. Este `curl` confirma, além do byte, o `content-type` com que o bucket serve — é o que decide se o cliente de e-mail renderiza o ícone:
+
+```bash
+BASE=https://kpwxmtqmzzybaolhijxb.supabase.co/storage/v1/object/public/reservas-assets
+for p in 404-error.svg og-1800x1600-bbz.png email/logo-horizontal-primary.png          email/facebook-icon-email.png email/instagram-icon-email.png          email/website-icon-email.png email/mail-icon-email.png          email/whatsapp-icon-email.png email/call-icon-email.png; do
+  curl -s -o /dev/null -w "%{http_code} %{content_type}  $p
+" "$BASE/$p"
+done
+```
+
+Esperado: nove linhas `200`, oito com `image/png` e uma com `image/svg+xml`.
 
 ### Conferência no banco (SQL)
 
@@ -448,8 +501,10 @@ Só depois de 5b confirmado. No Render, no Secret File `/etc/secrets/.env.prod`:
 + SUPABASE_URL=https://kpwxmtqmzzybaolhijxb.supabase.co
 + SUPABASE_SERVICE_ROLE_KEY=<service_role>
 + SUPABASE_STORAGE_BUCKET=reservas-assets
-+ ASSETS_BASE_URL=https://app-sistema-reserva.bbz.com.br
++ ASSETS_BASE_URL=https://kpwxmtqmzzybaolhijxb.supabase.co/storage/v1/object/public/reservas-assets
 ```
+
+> `ASSETS_BASE_URL` é **o mesmo valor** de `NEXT_PUBLIC_BUCKET` do front, e também sem barra no fim. Não é o domínio do front: os estáticos vivem no bucket, então publicar o back-end não depende de publicar o front.
 
 Reinicie o serviço. O log de boot informa o driver ativo e o bucket — é a confirmação do cutover.
 
@@ -460,7 +515,7 @@ Reinicie o serviço. O log de boot informa o driver ativo e o bucket — é a co
 | 1 | Subir imagem nova em um espaço | `201`; objeto aparece em `storage.objects`; imagem renderiza |
 | 2 | Gerar QR code de espaço sem `qrcode_url` | PNG no bucket; `qrcode_url` salvo como **caminho relativo** |
 | 3 | Excluir uma imagem de teste | `200`; objeto some do bucket |
-| 4 | Disparar e-mail transacional | Logo e os 5 ícones do rodapé renderizam no Gmail e no Outlook |
+| 4 | Disparar e-mail transacional | Logo e os 5 ícones do rodapé renderizam no Gmail e no Outlook, servidos pelo bucket |
 | 5 | Rodar o SQL de controle do §6 | Mesmos 4 valores de antes (fora os do teste 1 e 2) |
 
 ---
@@ -471,7 +526,7 @@ Durante toda a janela de observação (7 dias), voltar é troca de variável de 
 
 | Ordem | Onde | Ação |
 | --- | --- | --- |
-| 1 | Back-end (Render) | `STORAGE_DRIVER=s3` + restart → volta a gravar no S3 |
+| 1 | Back-end (Render) | `STORAGE_DRIVER=s3` e `ASSETS_BASE_URL` de volta para a URL do S3 + restart → volta a gravar e a servir estático do S3 |
 | 2 | Front | `NEXT_PUBLIC_BUCKET` de volta para a URL do S3 + publicar |
 | 3 | — | Recuperar o que foi gravado no Supabase durante a janela (ver abaixo) |
 
@@ -508,7 +563,7 @@ Então, nesta ordem:
 
 ## Anexo A — Alternativa para volumes grandes (`rclone`)
 
-Os scripts acima são adequados a 190 arquivos de 1,5 MB. Para migrações futuras com dezenas de milhares de objetos, o Supabase expõe um **endpoint S3-compatível**, o que permite copiar S3 → Supabase direto, sem passar por disco local, com retomada e verificação de hash embutidas.
+Os scripts acima são adequados a 199 arquivos de 1,7 MB. Para migrações futuras com dezenas de milhares de objetos, o Supabase expõe um **endpoint S3-compatível**, o que permite copiar S3 → Supabase direto, sem passar por disco local, com retomada e verificação de hash embutidas.
 
 1. Dashboard → *Storage* → *Configuration* → *S3* → habilite o protocolo e **gere um par de chaves** (mostrado uma única vez).
 2. Endpoint: `https://kpwxmtqmzzybaolhijxb.storage.supabase.co/storage/v1/s3`, região `us-east-1`, `path-style` obrigatório.
@@ -528,7 +583,7 @@ Com dois remotes configurados no `rclone.conf` (`provider = Other`, `force_path_
 
 ## Anexo B — SQL de provisionamento do bucket
 
-Já aplicado em `gestao_reservas_copy`. Rode isto no projeto de **produção** antes da Fase 5.
+Já aplicado em `gestao_reservas_copy` (as duas migrations do repositório, consolidadas aqui). Rode isto no projeto de **produção** antes da Fase 5 — o `image/svg+xml` já vem incluído.
 
 ```sql
 insert into storage.buckets (id, name, public, file_size_limit, allowed_mime_types)
@@ -537,7 +592,7 @@ values (
   'reservas-assets',
   true,
   5242880,
-  array['image/webp', 'image/png', 'image/jpeg']
+  array['image/webp', 'image/png', 'image/jpeg', 'image/svg+xml']
 )
 on conflict (id) do update
   set public = excluded.public,
@@ -569,23 +624,24 @@ PREPARO
 EXPORTAÇÃO
 [ ] 01-exportar-s3.mjs → 211 arquivos, 2 marcadores ignorados
 
-ESTÁTICOS
-[ ] 9 arquivos copiados para reservas-bbz-frontend/public/
-[ ] commit + publicação do front
-[ ] curl -I devolve 200 nos dois assets           ← trava a hipótese H-2
-[ ] 6 referências de e-mail trocadas para ASSETS_BASE_URL (código, Fase 3 da spec)
+BUCKET
+[ ] migration allow_svg_in_reservas_assets_bucket aplicada
+[ ] allowed_mime_types inclui image/svg+xml
 
-DINÂMICOS
-[ ] 02-subir-supabase.mjs → OK: 190 | Falhas: 0
-[ ] 03-verificar.mjs → 190/190 OK, 0 divergências  ← trava obrigatória
+CÓPIA (199 = 190 dinâmicos + 9 estáticos)
+[ ] 02-subir-supabase.mjs → OK: 199 | Falhas: 0
+[ ] 03-verificar.mjs → 199/199 OK, 0 divergências  ← trava obrigatória
+[ ] curl nos 9 estáticos → 200 com content-type de imagem
 [ ] SQL anti-join → zero linhas
+[ ] ASSETS_BASE_URL = base pública do bucket, sem barra final
+[ ] 6 referências de e-mail usando ASSETS_BASE_URL (código, Fase 3 da spec)
 
 CUTOVER
 [ ] sync incremental (01 → 02 → 03) fecha em 0 divergências
 [ ] next.config.mjs corrigido (hostname via new URL)
 [ ] NEXT_PUBLIC_BUCKET apontado para o Supabase + publicado
 [ ] imagens confirmadas visualmente no front
-[ ] STORAGE_DRIVER=supabase + vars no Render, restart
+[ ] STORAGE_DRIVER=supabase + ASSETS_BASE_URL + vars no Render, restart
 [ ] log de boot mostra driver supabase
 [ ] teste de fumaça 1 a 5 aprovado
 [ ] SQL de controle bate com o anotado no preparo

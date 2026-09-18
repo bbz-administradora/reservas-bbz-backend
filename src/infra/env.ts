@@ -80,7 +80,9 @@ const envSchema = z.object({
   SUPABASE_STORAGE_BUCKET: z.string().default('reservas-assets'),
 
   // Base pública dos assets estáticos (ícones de e-mail, SVG de erro, OG).
-  // Servidos pelo public/ do front. Sem barra no final.
+  // Servidos pelo próprio bucket, com a chave preservada do S3: apontar para a
+  // base pública do Supabase ou para o bucket S3 troca a origem sem tocar em
+  // código. Não depende de deploy do front. Sem barra no final.
   ASSETS_BASE_URL: z.string().url(),
 
   // Google Cloud OAuth configuration
