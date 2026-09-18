@@ -203,12 +203,12 @@ jobs:
           if [[ "${{ needs.resolve-environment.outputs.vercel_target_env }}" == "production" ]]; then
             vercel pull --yes \
               --environment="production" \
-              --token="${{ secrets.VERCEL_ACCESS_TOKEN }}"
+              --token="${{ secrets.VERCEL_ACCESS_TOKEN }}" --scope="$VERCEL_ORG_ID"
           else
             vercel pull --yes \
               --environment="preview" \
               --git-branch="${{ github.ref_name }}" \
-              --token="${{ secrets.VERCEL_ACCESS_TOKEN }}"
+              --token="${{ secrets.VERCEL_ACCESS_TOKEN }}" --scope="$VERCEL_ORG_ID"
           fi
 
       - name: Debug - variáveis puxadas
