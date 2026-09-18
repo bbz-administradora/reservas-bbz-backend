@@ -193,17 +193,22 @@ jobs:
         env:
           VERCEL_TOKEN: ${{ secrets.VERCEL_ACCESS_TOKEN }}
 
+      # `--scope` explícito porque a CLI, sem ele, resolve o time a partir do
+      # usuário dono do token — e um token com escopo (`vcp_`) não tem usuário,
+      # que é o mesmo 404 do `whoami`. A chamada REST do passo anterior passa com
+      # `teamId` na query e prova que o token enxerga o projeto; aqui damos à CLI
+      # a mesma informação em vez de deixá-la deduzir.
       - name: Pull Vercel project settings
         run: |
           if [[ "${{ needs.resolve-environment.outputs.vercel_target_env }}" == "production" ]]; then
             vercel pull --yes \
               --environment="production" \
-              --token="${{ secrets.VERCEL_ACCESS_TOKEN }}"
+              --token="${{ secrets.VERCEL_ACCESS_TOKEN }}" --scope="$VERCEL_ORG_ID"
           else
             vercel pull --yes \
               --environment="preview" \
               --git-branch="${{ github.ref_name }}" \
-              --token="${{ secrets.VERCEL_ACCESS_TOKEN }}"
+              --token="${{ secrets.VERCEL_ACCESS_TOKEN }}" --scope="$VERCEL_ORG_ID"
           fi
 
       - name: Debug - variáveis puxadas
@@ -229,11 +234,11 @@ jobs:
         run: |
           vercel build \
             ${{ needs.resolve-environment.outputs.vercel_prod_flag }} \
-            --token="${{ secrets.VERCEL_ACCESS_TOKEN }}"
+            --token="${{ secrets.VERCEL_ACCESS_TOKEN }}" --scope="$VERCEL_ORG_ID"
 
       - name: Deploy prebuilt output
         run: |
           vercel deploy \
             --prebuilt \
             ${{ needs.resolve-environment.outputs.vercel_prod_flag }} \
-            --token="${{ secrets.VERCEL_ACCESS_TOKEN }}"
+            --token="${{ secrets.VERCEL_ACCESS_TOKEN }}" --scope="$VERCEL_ORG_ID"
