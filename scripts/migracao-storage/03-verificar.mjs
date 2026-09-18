@@ -1,6 +1,7 @@
 // Confere a cópia comparando o MD5 do arquivo local com o que o Supabase
-// serve na URL pública. É a evidência do CA-4 da spec 01 e trava obrigatória
-// antes do cutover.
+// serve na URL pública, para o mesmo conjunto que o 02 envia (dinâmicos +
+// estáticos, sem images/salas/). É a evidência do CA-4 da spec 01 e trava
+// obrigatória antes do cutover.
 // Ver docs/manual-migracao-s3-supabase.md, passo 4.
 import { config } from 'dotenv'
 import { expand } from 'dotenv-expand'
@@ -11,7 +12,7 @@ import { join, relative } from 'node:path'
 expand(config({ path: '.env' }))
 
 const ORIGEM = 'export-s3'
-const PREFIXO = 'images/espacos'
+const DESCARTE = ['images/salas']
 const BUCKET = process.env.SUPABASE_STORAGE_BUCKET ?? 'reservas-assets'
 const BASE = `${process.env.SUPABASE_URL}/storage/v1/object/public/${BUCKET}`
 
@@ -27,12 +28,17 @@ async function listar(dir) {
   return saida
 }
 
-const arquivos = await listar(join(ORIGEM, PREFIXO))
+const chaveDe = (arquivo) => relative(ORIGEM, arquivo).split('\\').join('/')
+
+const arquivos = (await listar(ORIGEM)).filter(
+  (arquivo) =>
+    !DESCARTE.some((prefixo) => chaveDe(arquivo).startsWith(`${prefixo}/`)),
+)
 const divergencias = []
 let ok = 0
 
 for (const arquivo of arquivos) {
-  const chave = relative(ORIGEM, arquivo).split('\\').join('/')
+  const chave = chaveDe(arquivo)
   const local = await readFile(arquivo)
   const resposta = await fetch(`${BASE}/${chave}`)
 
@@ -52,8 +58,6 @@ for (const arquivo of arquivos) {
   process.stdout.write(`\r  conferidos ${ok}/${arquivos.length}`)
 }
 
-console.log(
-  `\n${ok}/${arquivos.length} OK, ${divergencias.length} divergências`,
-)
+console.log(`\n${ok}/${arquivos.length} OK, ${divergencias.length} divergências`)
 divergencias.forEach((d) => console.error(`  ✗ ${d.chave}: ${d.motivo}`))
 process.exit(divergencias.length ? 1 : 0)

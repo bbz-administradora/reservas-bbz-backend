@@ -1,6 +1,9 @@
-// Sobe os objetos dinâmicos (images/espacos/**) do export local para o bucket
-// do Supabase, preservando a chave. Idempotente: pode rodar de novo para fazer
-// o sync incremental antes do cutover.
+// Sobe para o bucket do Supabase tudo que sai do export local, exceto o
+// descarte (images/salas/**): os 190 dinâmicos de images/espacos/** e os 9
+// estáticos (email/*.png, 404-error.svg, og-1800x1600-bbz.png). A chave é
+// preservada byte a byte, então a base pública do Supabase substitui a do S3
+// sem reescrever caminho em lugar nenhum.
+// Idempotente: pode rodar de novo para o sync incremental antes do cutover.
 // Ver docs/manual-migracao-s3-supabase.md, passo 3.
 import { createClient } from '@supabase/supabase-js'
 import { config } from 'dotenv'
@@ -11,7 +14,9 @@ import { join, relative } from 'node:path'
 expand(config({ path: '.env' }))
 
 const ORIGEM = 'export-s3'
-const PREFIXO = 'images/espacos' // só o que é dinâmico; images/salas não migra
+// Único grupo que não migra: órfão no banco, 3 arquivos de 0 byte e 9
+// duplicatas de images/espacos/. Fica no arquivo morto do S3.
+const DESCARTE = ['images/salas']
 const BUCKET = process.env.SUPABASE_STORAGE_BUCKET ?? 'reservas-assets'
 
 const MIME = {
@@ -19,6 +24,7 @@ const MIME = {
   '.png': 'image/png',
   '.jpg': 'image/jpeg',
   '.jpeg': 'image/jpeg',
+  '.svg': 'image/svg+xml',
 }
 
 const supabase = createClient(
@@ -37,13 +43,19 @@ async function listar(dir) {
   return saida
 }
 
-const arquivos = await listar(join(ORIGEM, PREFIXO))
+// Chave POSIX relativa ao export, que é exatamente a chave no bucket.
+const chaveDe = (arquivo) => relative(ORIGEM, arquivo).split('\\').join('/')
+
+const arquivos = (await listar(ORIGEM)).filter(
+  (arquivo) =>
+    !DESCARTE.some((prefixo) => chaveDe(arquivo).startsWith(`${prefixo}/`)),
+)
 console.log(`${arquivos.length} arquivos a enviar para ${BUCKET}`)
 
 let ok = 0
 const falhas = []
 for (const arquivo of arquivos) {
-  const chave = relative(ORIGEM, arquivo).split('\\').join('/') // Windows -> POSIX
+  const chave = chaveDe(arquivo)
   const ext = chave.slice(chave.lastIndexOf('.')).toLowerCase()
   const buffer = await readFile(arquivo)
 
