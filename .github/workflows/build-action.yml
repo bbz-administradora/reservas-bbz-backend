@@ -165,11 +165,10 @@ jobs:
           done
           exit $fail
 
-      # Pergunta à API se ESTE token enxerga ESTE projeto, que é exatamente o
-      # que o `pull` precisa e não conta quando falha. Não use `vercel whoami`
-      # aqui: ele chama GET /v2/user e um token com escopo de time ou projeto
-      # não tem usuário por trás, então responde 404 mesmo estando válido.
-      #   200 -> token ok, a falha está adiante
+      # Duas perguntas diferentes, e as duas precisam de sim. Esta aqui é sobre
+      # permissão: este token enxerga este projeto? É o que o `pull` precisa e
+      # não conta quando falha.
+      #   200 -> token enxerga o projeto
       #   401 -> token inválido, revogado ou expirado
       #   403 -> token válido, sem permissão neste projeto
       #   404 -> token válido, com escopo de outro projeto ou outro time
@@ -198,6 +197,18 @@ jobs:
       # que é o mesmo 404 do `whoami`. A chamada REST do passo anterior passa com
       # `teamId` na query e prova que o token enxerga o projeto; aqui damos à CLI
       # a mesma informação em vez de deixá-la deduzir.
+      # A outra pergunta, e a que de fato derrubou este workflow: existe um
+      # usuário por trás deste token? A CLI carrega o dono do token no arranque
+      # e morre com "Not able to load user" se não houver — que é exatamente a
+      # chamada GET /v2/user que o `whoami` faz. Um token com escopo de projeto
+      # passa no teste de permissão acima e reprova aqui: responde pela API REST
+      # e não serve para `pull`, `build` nem `deploy`.
+      #
+      # Não confunda este 404 com token inválido, como já aconteceu aqui: o
+      # passo anterior é quem responde por validade. Este responde por tipo.
+      - name: Check Vercel token works with the CLI
+        run: vercel whoami --token="${{ secrets.VERCEL_ACCESS_TOKEN }}"
+
       # Testa diretamente a hipótese de que a pasta .vercel chega ao runner antes
       # do pull. Quem cria essa pasta é o próprio `vercel pull`, e só depois de
       # conseguir ler as Project Settings — então aqui ela não deveria existir.
