@@ -165,14 +165,33 @@ jobs:
           done
           exit $fail
 
-      # Separa os dois modos de falha antes do `pull`, que responde a mesma
-      # mensagem genérica para qualquer causa: um token inválido morre aqui no
-      # `whoami`, que consulta só o token e ignora os IDs; um token válido sem
-      # acesso ao time BBZ passa no `whoami` e não lista o time em `teams ls`.
-      - name: Check Vercel token scope
+      # Pergunta à API se ESTE token enxerga ESTE projeto, que é exatamente o
+      # que o `pull` precisa e não conta quando falha. Não use `vercel whoami`
+      # aqui: ele chama GET /v2/user e um token com escopo de time ou projeto
+      # não tem usuário por trás, então responde 404 mesmo estando válido.
+      #   200 -> token ok, a falha está adiante
+      #   401 -> token inválido, revogado ou expirado
+      #   403 -> token válido, sem permissão neste projeto
+      #   404 -> token válido, com escopo de outro projeto ou outro time
+      - name: Check Vercel token access to project
         run: |
-          vercel whoami --token="${{ secrets.VERCEL_ACCESS_TOKEN }}"
-          vercel teams ls --token="${{ secrets.VERCEL_ACCESS_TOKEN }}"
+          status=$(curl -sS -o resposta.json -w '%{http_code}' \
+            "https://api.vercel.com/v9/projects/$VERCEL_PROJECT_ID?teamId=$VERCEL_ORG_ID" \
+            -H "Authorization: Bearer $VERCEL_TOKEN")
+
+          echo "GET /v9/projects/<id> -> HTTP $status"
+
+          if [[ "$status" == "200" ]]; then
+            echo "Projeto visível para o token: $(jq -r .name resposta.json)"
+          else
+            jq -c '.error // .' resposta.json
+            rm -f resposta.json
+            exit 1
+          fi
+
+          rm -f resposta.json
+        env:
+          VERCEL_TOKEN: ${{ secrets.VERCEL_ACCESS_TOKEN }}
 
       - name: Pull Vercel project settings
         run: |
