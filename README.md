@@ -6,9 +6,9 @@ API do sistema interno de reserva de espaços da BBZ. O serviço concentra auten
 
 | Componente      | Desenvolvimento                                       | Produção                                                               |
 | --------------- | ----------------------------------------------------- | ---------------------------------------------------------------------- |
-| API             | `http://localhost:3334`                               | `https://api-sistema-reserva.bbz.com.br` (Render)                      |
-| Swagger UI      | `http://localhost:3334/docs`                          | `https://api-sistema-reserva.bbz.com.br/docs`                          |
-| Health check    | `http://localhost:3334/v1/public/infra/server/health` | `https://api-sistema-reserva.bbz.com.br/v1/public/infra/server/health` |
+| API             | `http://localhost:5000`                               | `https://api-sistema-reserva.bbz.com.br` (Render)                      |
+| Swagger UI      | `http://localhost:5000/docs`                          | `https://api-sistema-reserva.bbz.com.br/docs`                          |
+| Health check    | `http://localhost:5000/v1/public/infra/server/health` | `https://api-sistema-reserva.bbz.com.br/v1/public/infra/server/health` |
 | PostgreSQL      | Docker, PostgreSQL 16 em `localhost:25432`            | Supabase                                                               |
 | Frontend        | `http://localhost:3001`                               | `https://app-sistema-reserva.bbz.com.br` (Vercel)                      |
 | E-mail          | Ethereal                                              | Brevo SMTP Relay                                                       |
@@ -65,7 +65,7 @@ npm run dev
 
 `npm run dev` gera o CSS dos e-mails, inicia o PostgreSQL, aguarda o banco, aplica migrações, executa o seed idempotente e inicia o Fastify em watch mode. O seed cria somente as contas técnicas `dev@bbz.com.br` e `admin@bbz.com.br`; a senha deve ser tratada como dado operacional e alterada conforme o ambiente.
 
-O frontend deve ser iniciado depois que a API e o Swagger local estiverem disponíveis, pois o Orval consulta `http://localhost:3334/docs/json`.
+O frontend deve ser iniciado depois que a API e o Swagger local estiverem disponíveis, pois o Orval consulta `http://localhost:5000/docs/json`.
 
 ## Scripts
 

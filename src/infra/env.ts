@@ -23,7 +23,7 @@ const envSchema = z.object({
   // API configuration
   DOMAIN: z.string(),
   API_URL: z.string(),
-  API_PORT: z.coerce.number().default(Number(process.env.PORT ?? 3334)),
+  API_PORT: z.coerce.number().default(Number(process.env.PORT ?? 5000)),
   API_DOC_USER: z.string(),
   API_DOC_PASSWORD: z.string(),
   WEB_APP_URL: z.string(),

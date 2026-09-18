@@ -6,8 +6,8 @@
     "version": "1.0.0",
     "contact": {
       "name": "Support",
-      "email": "asq@bbz.com.br",
-      "url": "https://github.com/bbz-gestao-reservas"
+      "email": "mgs@bbz.com.br",
+      "url": "https://github.com/bbz-administradora/Matheus-bbz"
     }
   },
   "components": {
@@ -20692,7 +20692,7 @@
   },
   "servers": [
     {
-      "url": "http://localhost:3334",
+      "url": "http://localhost:5000",
       "description": "Development server"
     }
   ],
@@ -20732,6 +20732,6 @@
   ],
   "externalDocs": {
     "description": "Repository of project",
-    "url": "https://github.com/bbz-gestao-reservas/bbz-app-backend"
+    "url": "https://github.com/bbz-administradora/reservas-bbz-backend"
   }
 }
