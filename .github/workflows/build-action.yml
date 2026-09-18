@@ -136,7 +136,7 @@ jobs:
           SUPABASE_DB_PASSWORD: ${{ secrets.SUPABASE_DB_PASSWORD }}
 
       - name: Install Vercel CLI
-        run: npm install --global vercel@59.23.2
+        run: npm install --global vercel@50.5.0
 
       # Com os IDs de volta como secrets o log os mascara, e um valor colado
       # torto volta a ser invisível. Este passo confere o formato sem expor o
@@ -197,16 +197,21 @@ jobs:
       # que é o mesmo 404 do `whoami`. A chamada REST do passo anterior passa com
       # `teamId` na query e prova que o token enxerga o projeto; aqui damos à CLI
       # a mesma informação em vez de deixá-la deduzir.
-      # A outra pergunta, e a que de fato derrubou este workflow: existe um
-      # usuário por trás deste token? A CLI carrega o dono do token no arranque
-      # e morre com "Not able to load user" se não houver — que é exatamente a
-      # chamada GET /v2/user que o `whoami` faz. Um token com escopo de projeto
-      # passa no teste de permissão acima e reprova aqui: responde pela API REST
-      # e não serve para `pull`, `build` nem `deploy`.
+      # A outra pergunta: existe um usuário por trás deste token? Um token com
+      # escopo de projeto responde 404 aqui e 200 no passo acima.
       #
-      # Não confunda este 404 com token inválido, como já aconteceu aqui: o
-      # passo anterior é quem responde por validade. Este responde por tipo.
+      # Isto NÃO reprova o token. A CLI 50.5.0 trabalha com token sem usuário;
+      # a 59.23.2 carrega o dono no arranque e morre com "Not able to load
+      # user". É a versão da CLI que decide, não o token — foi o que este
+      # workflow levou uma tarde para descobrir.
+      #
+      # Também não confunda este 404 com token inválido: quem responde por
+      # validade é o passo anterior. Este responde por tipo.
+      # Informativo, nunca bloqueante: um token sem usuário responde 404 aqui e
+      # ainda assim funciona na 50.5.0. Serve para registrar no log qual é o
+      # caso, não para reprovar o job.
       - name: Check Vercel token works with the CLI
+        continue-on-error: true
         run: vercel whoami --token="${{ secrets.VERCEL_ACCESS_TOKEN }}"
 
       # Testa diretamente a hipótese de que a pasta .vercel chega ao runner antes
