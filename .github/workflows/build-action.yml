@@ -100,15 +100,9 @@ jobs:
       group: migrate-deploy-${{ needs.resolve-environment.outputs.env_name }}
       cancel-in-progress: false
 
-    # Identificadores do projeto na Vercel, não credenciais: sozinhos não dão
-    # acesso a nada, e aparecem na URL do dashboard. Estavam como secrets e o
-    # mascaramento escondia justamente o campo suspeito quando o `vercel pull`
-    # falhava com "Could not retrieve Project Settings" — um valor com quebra de
-    # linha no fim, colado por `echo | gh secret set`, produz esse mesmo erro sem
-    # deixar rastro no log. Só o token continua secret.
     env:
-      VERCEL_ORG_ID: team_n00SYP4GqMJi93IF9l832v0J
-      VERCEL_PROJECT_ID: prj_viCHKLYHYhufZ4oPAwf4iYjVZzTL
+      VERCEL_ORG_ID: ${{ secrets.VERCEL_ORG_ID }}
+      VERCEL_PROJECT_ID: ${{ secrets.VERCEL_PROJECT_ID }}
 
     steps:
       - name: Checkout code
@@ -144,9 +138,37 @@ jobs:
       - name: Install Vercel CLI
         run: npm install --global vercel@59.23.2
 
-      # Se o pull falhar, este passo diz qual das duas coisas quebrou: um token
-      # inválido morre aqui no `whoami`; um token válido sem acesso ao time BBZ
-      # passa no `whoami` e não lista o time em `teams ls`.
+      # Com os IDs de volta como secrets o log os mascara, e um valor colado
+      # torto volta a ser invisível. Este passo confere o formato sem expor o
+      # conteúdo — prefixo esperado e ausência de espaço ou quebra de linha, que
+      # é o que transforma um ID certo em "Could not retrieve Project Settings"
+      # no `pull`, sem nenhuma pista no log.
+      - name: Check Vercel secrets shape
+        run: |
+          fail=0
+          for name in VERCEL_ORG_ID VERCEL_PROJECT_ID; do
+            value="${!name}"
+            case "$name" in
+              VERCEL_ORG_ID) prefix=team_ ;;
+              VERCEL_PROJECT_ID) prefix=prj_ ;;
+            esac
+
+            if [[ "$value" =~ [[:space:]] ]]; then
+              echo "$name: ${#value} caracteres - ERRO: contém espaço ou quebra de linha"
+              fail=1
+            elif [[ "$value" != "$prefix"* ]]; then
+              echo "$name: ${#value} caracteres - ERRO: não começa com $prefix"
+              fail=1
+            else
+              echo "$name: ${#value} caracteres - ok"
+            fi
+          done
+          exit $fail
+
+      # Separa os dois modos de falha antes do `pull`, que responde a mesma
+      # mensagem genérica para qualquer causa: um token inválido morre aqui no
+      # `whoami`, que consulta só o token e ignora os IDs; um token válido sem
+      # acesso ao time BBZ passa no `whoami` e não lista o time em `teams ls`.
       - name: Check Vercel token scope
         run: |
           vercel whoami --token="${{ secrets.VERCEL_ACCESS_TOKEN }}"
