@@ -198,6 +198,24 @@ jobs:
       # que é o mesmo 404 do `whoami`. A chamada REST do passo anterior passa com
       # `teamId` na query e prova que o token enxerga o projeto; aqui damos à CLI
       # a mesma informação em vez de deixá-la deduzir.
+      # Testa diretamente a hipótese de que a pasta .vercel chega ao runner antes
+      # do pull. Quem cria essa pasta é o próprio `vercel pull`, e só depois de
+      # conseguir ler as Project Settings — então aqui ela não deveria existir.
+      - name: Check for .vercel before pull
+        run: |
+          echo "--- find . -name .vercel ---"
+          find . -name .vercel -not -path './node_modules/*' -print
+
+          if [ -e .vercel ]; then
+            echo "EXISTE no runner antes do pull:"
+            ls -la .vercel
+          else
+            echo "NAO existe no runner antes do pull"
+          fi
+
+          echo "--- git ls-files, o que o checkout trouxe ---"
+          git ls-files | grep -i vercel || echo "nenhum caminho com 'vercel' rastreado alem do abaixo"
+
       - name: Pull Vercel project settings
         run: |
           if [[ "${{ needs.resolve-environment.outputs.vercel_target_env }}" == "production" ]]; then
