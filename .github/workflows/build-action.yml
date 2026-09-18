@@ -100,6 +100,16 @@ jobs:
       group: migrate-deploy-${{ needs.resolve-environment.outputs.env_name }}
       cancel-in-progress: false
 
+    # Identificadores do projeto na Vercel, não credenciais: sozinhos não dão
+    # acesso a nada, e aparecem na URL do dashboard. Estavam como secrets e o
+    # mascaramento escondia justamente o campo suspeito quando o `vercel pull`
+    # falhava com "Could not retrieve Project Settings" — um valor com quebra de
+    # linha no fim, colado por `echo | gh secret set`, produz esse mesmo erro sem
+    # deixar rastro no log. Só o token continua secret.
+    env:
+      VERCEL_ORG_ID: team_n00SYP4GqMJi93IF9l832v0J
+      VERCEL_PROJECT_ID: prj_viCHKLYHYhufZ4oPAwf4iYjVZzTL
+
     steps:
       - name: Checkout code
         uses: actions/checkout@v4
@@ -134,6 +144,14 @@ jobs:
       - name: Install Vercel CLI
         run: npm install --global vercel@59.23.2
 
+      # Se o pull falhar, este passo diz qual das duas coisas quebrou: um token
+      # inválido morre aqui no `whoami`; um token válido sem acesso ao time BBZ
+      # passa no `whoami` e não lista o time em `teams ls`.
+      - name: Check Vercel token scope
+        run: |
+          vercel whoami --token="${{ secrets.VERCEL_ACCESS_TOKEN }}"
+          vercel teams ls --token="${{ secrets.VERCEL_ACCESS_TOKEN }}"
+
       - name: Pull Vercel project settings
         run: |
           if [[ "${{ needs.resolve-environment.outputs.vercel_target_env }}" == "production" ]]; then
@@ -146,9 +164,6 @@ jobs:
               --git-branch="${{ github.ref_name }}" \
               --token="${{ secrets.VERCEL_ACCESS_TOKEN }}"
           fi
-        env:
-          VERCEL_ORG_ID: ${{ secrets.VERCEL_ORG_ID }}
-          VERCEL_PROJECT_ID: ${{ secrets.VERCEL_PROJECT_ID }}
 
       - name: Debug - variáveis puxadas
         run: grep -o '^[A-Z_]*=' .vercel/.env.*.local
@@ -174,9 +189,6 @@ jobs:
           vercel build \
             ${{ needs.resolve-environment.outputs.vercel_prod_flag }} \
             --token="${{ secrets.VERCEL_ACCESS_TOKEN }}"
-        env:
-          VERCEL_ORG_ID: ${{ secrets.VERCEL_ORG_ID }}
-          VERCEL_PROJECT_ID: ${{ secrets.VERCEL_PROJECT_ID }}
 
       - name: Deploy prebuilt output
         run: |
@@ -184,6 +196,3 @@ jobs:
             --prebuilt \
             ${{ needs.resolve-environment.outputs.vercel_prod_flag }} \
             --token="${{ secrets.VERCEL_ACCESS_TOKEN }}"
-        env:
-          VERCEL_ORG_ID: ${{ secrets.VERCEL_ORG_ID }}
-          VERCEL_PROJECT_ID: ${{ secrets.VERCEL_PROJECT_ID }}
