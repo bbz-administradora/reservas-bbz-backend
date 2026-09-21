@@ -6,9 +6,18 @@
   "functions": {
     "api/index.js": {
       "includeFiles": "build/**"
+    },
+    "api/jobs.js": {
+      "includeFiles": "build/**",
+      "maxDuration": 300,
+      "memory": 1024
     }
   },
   "rewrites": [
+    {
+      "source": "/v1/internal/jobs/(.*)",
+      "destination": "/api/jobs"
+    },
     {
       "source": "/(.*)",
       "destination": "/api/index"

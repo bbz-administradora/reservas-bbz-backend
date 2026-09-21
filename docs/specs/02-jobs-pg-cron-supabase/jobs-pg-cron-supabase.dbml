@@ -1,0 +1,65 @@
+// Estado-alvo do modelo persistente da spec 02 (jobs no pg_cron do Supabase).
+//
+// VISÃO PARCIAL, por desenho: cobre as duas tabelas criadas pela task e, de
+// space_reservations, apenas as colunas tocadas. O domínio não é redesenhado
+// aqui — para o schema completo, ver supabase/migrations/20260918000000_baseline.sql.
+//
+// O que este arquivo NÃO expressa e vive na spec: RLS e ausência deliberada de
+// policies, funções plpgsql, agendas em cron.job, grants, migration, rollout e
+// rollback. Ver jobs-pg-cron-supabase.md.
+//
+// Versão 1.1 — 2026-09-21
+
+Table jobs.job_definition {
+  name           text        [pk, note: 'mesma string em cron.job.jobname, no registry TS e no :name da rota (RB-2)']
+  kind           text        [not null, note: "check (kind in ('sql','http'))"]
+  schedule_utc   text        [not null, note: 'expressao cron de 5 campos, avaliada em UTC porque cron.timezone = GMT']
+  schedule_label text        [not null, note: 'a mesma agenda em horario de Sao Paulo, para leitura humana']
+  sql_function   text        [null, note: 'obrigatorio quando kind = sql; validado em jobs.sync_schedules()']
+  http_path      text        [null, note: 'obrigatorio quando kind = http; validado em jobs.sync_schedules()']
+  timeout_ms     integer     [not null, default: 30000, note: 'teto de execucao. A API deriva dele o proprio prazo: min(JOBS_TIME_BUDGET_MS, timeout_ms - 10s). Piso de 30000 validado em sync_schedules (RB-7)']
+  max_attempts   smallint    [not null, default: 1, note: 'tentativas por horario, contando a primeira']
+  enabled        boolean     [not null, default: false, note: 'nasce desligado: ligar a agenda e acao humana, nao efeito de deploy']
+  description    text        [not null, note: 'inclui, quando for o caso, que o job e retomavel']
+  created_at     timestamptz [not null, default: `now()`]
+  updated_at     timestamptz [not null, default: `now()`, note: 'mantido pelo insert ... on conflict do update da migration; sem trigger']
+
+  Note: 'Verdade declarativa das agendas. Append-only em nome: job retirado do ar fica enabled = false, a linha nao e apagada (RB-1). RLS habilitada, nenhuma policy (RB-8).'
+}
+
+Table jobs.job_run {
+  id            bigint      [pk, increment, note: 'bigint generated always as identity. Diverge da convencao uuid do repositorio de proposito: ledger append-only de alto volume, mesmo caso de backup_logs']
+  job_name      text        [not null]
+  scheduled_for timestamptz [not null, note: "date_trunc('minute', now()) no instante do disparo; reaproveitado por todas as tentativas do mesmo horario (RB-3)"]
+  attempt       smallint    [not null, default: 1]
+  status        text        [not null, note: "check (status in ('dispatched','running','succeeded','partial','failed','skipped'))"]
+  trigger       text        [not null, default: 'pg_cron', note: "check (trigger in ('pg_cron','manual','retry'))"]
+  request_id    bigint      [null, note: 'id devolvido por net.http_post; so faz sentido enquanto net._http_response nao expirou, 6 horas']
+  started_at    timestamptz [null, note: 'nulo entre o dispatch e o claim da API']
+  finished_at   timestamptz [null, note: 'nulo enquanto a execucao nao chegou a estado terminal']
+  stats         jsonb       [not null, default: `'{}'`, note: 'resultado por job: deleted, processed, emailsSent, remaining, acted']
+  error         text        [null, note: 'preenchido em failed e em skipped, com o motivo']
+  created_at    timestamptz [not null, default: `now()`]
+
+  indexes {
+    (job_name, scheduled_for, attempt) [unique, name: 'job_run_slot_uniq', note: "PARCIAL: where status <> 'skipped'. Execucao pulada nao e tentativa e nao disputa a chave com a execucao que a pulou"]
+    (job_name, created_at) [name: 'job_run_job_recente_idx', note: 'atende v_job_health e o indice da FK']
+    status [name: 'job_run_ativos_idx', note: "PARCIAL: where status in ('dispatched','running'). Usado pelo watchdog e pela guarda de execucao ativa"]
+  }
+
+  Note: 'Ledger de execucoes e mecanismo de exclusao. Job de negocio grava sempre; job de runtime (reconcile, prune_history) grava so quando agiu ou falhou (RF-4). Retencao de 90 dias por jobs.prune_history(). RLS habilitada, nenhuma policy (RB-8).'
+}
+
+Ref: jobs.job_run.job_name > jobs.job_definition.name [delete: restrict, update: cascade]
+
+// ---------------------------------------------------------------------------
+// Tabela existente, alterada. Apenas as colunas tocadas pela task.
+// ---------------------------------------------------------------------------
+
+Table public.space_reservations {
+  id                        uuid        [pk, default: `gen_random_uuid()`]
+  attendance_status         varchar(20) [not null, default: 'pending', note: "check in ('pending','checked-in','checked-out','absent','not-applicable') — INALTERADO"]
+  email_notification_status varchar(20) [not null, default: 'not-evaluated', note: "ALTERADO: o check passa a aceitar 'sending', alem de 'not-evaluated','pending','sent','not-required','error'. Permite reservar a linha antes do envio (PD-2)"]
+
+  Note: 'VISAO PARCIAL: a tabela tem outras colunas, nao representadas aqui. A unica mudanca desta task e o valor sending no check de email_notification_status.'
+}

@@ -78,6 +78,12 @@ jobs:
       - name: Lint
         run: npm run lint:eslint:check
 
+      # O nome de um job e contrato entre o registry TypeScript, a migration de
+      # runtime, jobs.job_definition e a rota. Divergir nao quebra a
+      # compilacao: quebra o disparo, em silencio, de madrugada.
+      - name: Check job registry
+        run: npm run jobs:check
+
       - name: Typecheck
         run: npx tsc --noEmit
 
