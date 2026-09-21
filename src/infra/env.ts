@@ -62,6 +62,19 @@ const envSchema = z.object({
   EMAIL_FROM: z.string(), // Formato: "Nome" <email@dominio.com>
   EMAIL_CLIENT: z.string().email(),
 
+  // Jobs agendados
+  // Quem agenda é o pg_cron do Supabase; a API só executa quando recebe o
+  // gatilho. O segredo é o mesmo valor guardado no Vault como
+  // `jobs_trigger_secret` e é a única autenticação da rota interna.
+  JOBS_TRIGGER_SECRET: z
+    .string()
+    .min(32, 'JOBS_TRIGGER_SECRET precisa de no mínimo 32 caracteres.'),
+
+  // Teto de execução imposto pela plataforma, que depende do plano da Vercel.
+  // O prazo real de um job é o menor entre este valor e o `timeout_ms` da
+  // definição menos folga — ver src/infra/jobs/runner.ts.
+  JOBS_TIME_BUDGET_MS: z.coerce.number().int().positive().default(50000),
+
   // Storage configuration
   // Seleciona o adapter de storage em runtime. Permite cutover e rollback da
   // migração S3 -> Supabase por variável de ambiente, sem deploy de código.
