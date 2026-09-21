@@ -1,61 +1,36 @@
-import { FastifyInstance } from 'fastify'
-import { AsyncTask, SimpleIntervalJob } from 'toad-scheduler'
 import { database } from '../../database'
+import { JobContext, JobResult } from '../types'
 
 /**
- * Task para limpar pré-reservas expiradas
+ * Limpeza de pré-reservas expiradas.
  *
- * OTIMIZAÇÃO: Agora roda a cada 30 minutos (antes era 1 minuto)
- * As queries de disponibilidade já ignoram pré-reservas expiradas via filtro SQL,
- * então esse job serve apenas para limpeza de dados, não impactando a UX.
- */
-function createCleanupExpiredPreReservationsTask(app: FastifyInstance) {
-  return new AsyncTask(
-    'cleanup-expired-pre-reservations',
-    async () => {
-      try {
-        const result = await database.query({
-          text: `
-            DELETE FROM space_slots
-            WHERE status = 'pre_reserved'
-            AND pre_reserved_until < NOW()
-            RETURNING id
-          `,
-        })
-
-        const deletedCount = result.rowCount || 0
-        if (deletedCount > 0) {
-          app.log.info(
-            `🧹 Limpeza: ${deletedCount} pré-reservas expiradas foram removidas`,
-          )
-        }
-      } catch (error) {
-        app.log.error(
-          { err: error },
-          '❌ Erro ao limpar pré-reservas expiradas',
-        )
-      }
-    },
-    (err) => {
-      app.log.error(
-        { err },
-        '❌ Erro na execução do job de limpeza de pré-reservas',
-      )
-    },
-  )
-}
-
-/**
- * Cria o job de limpeza de pré-reservas expiradas
- * Executa a cada 30 minutos
+ * Agendado pelo pg_cron a cada 30 minutos, alinhado ao relógio de parede: roda
+ * em :00 e :30. Antes era um intervalo contado a partir do boot do processo, o
+ * que na Vercel significava "quando alguma instância estiver acordada há meia
+ * hora" — ou seja, quase nunca de madrugada.
  *
- * OTIMIZAÇÃO: Reduzido de 1 minuto para 30 minutos (redução de ~97% das execuções)
- * As queries de disponibilidade já ignoram slots expirados via filtro SQL,
- * então a limpeza é apenas para manter o banco organizado, não impacta UX.
+ * A limpeza é higiene: as queries de disponibilidade já ignoram pré-reserva
+ * expirada por filtro SQL, então atrasar uma execução não afeta a experiência.
  */
-export function createExpiredPreReservationsCleanupJob(app: FastifyInstance) {
-  return new SimpleIntervalJob(
-    { minutes: 30, runImmediately: false },
-    createCleanupExpiredPreReservationsTask(app),
-  )
+export async function runCleanupExpiredPreReservations(
+  ctx: JobContext,
+): Promise<JobResult> {
+  const result = await database.query({
+    text: `
+      DELETE FROM space_slots
+      WHERE status = 'pre_reserved'
+      AND pre_reserved_until < NOW()
+      RETURNING id
+    `,
+  })
+
+  const deleted = result.rowCount || 0
+
+  if (deleted > 0) {
+    ctx.log.info(
+      `🧹 Limpeza: ${deleted} pré-reservas expiradas foram removidas`,
+    )
+  }
+
+  return { status: 'succeeded', stats: { deleted } }
 }

@@ -4,7 +4,6 @@ import fastifyCors from '@fastify/cors'
 import fastifyJwt from '@fastify/jwt'
 import multipart from '@fastify/multipart'
 import fastifyRequestContext from '@fastify/request-context'
-import fastifySchedule from '@fastify/schedule'
 import fastifySwagger from '@fastify/swagger'
 import fastifySwaggerUi from '@fastify/swagger-ui'
 import fastify, { FastifyReply, FastifyRequest } from 'fastify'
@@ -20,7 +19,6 @@ import {
 import { env } from './infra/env'
 import { ForbiddenError, UnauthorizedError } from './infra/errors'
 import { host } from './infra/hosts'
-import { setupJobs } from './infra/jobs'
 import { setupErrorHandling } from './middlewares/error-handler'
 import { setupUserMonitoring } from './middlewares/user-monitoring'
 import { registerRoutes } from './routes'
@@ -245,14 +243,10 @@ app.register(async function (app) {
   // Register routes
   await registerRoutes(app)
 
-  // Registrar o plugin de agendamento
-  app.register(fastifySchedule)
-
-  // Configurar os jobs agendados
-  app.ready().then(() => {
-    // Configurar e adicionar todos os jobs ao agendador
-    setupJobs(app)
-  })
+  // Não há agendador aqui, e é de propósito. Quem sabe a hora é o pg_cron do
+  // Supabase, que chama /v1/internal/jobs/:name. Registrar um scheduler no
+  // processo faria cada instância serverless virar um relógio concorrente —
+  // ver docs/specs/02-jobs-pg-cron-supabase/.
 })
 
 setupErrorHandling(app)
