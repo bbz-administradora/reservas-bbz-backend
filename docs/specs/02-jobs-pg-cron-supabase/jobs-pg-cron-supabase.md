@@ -544,6 +544,8 @@ Sete jobs de negócio em TypeScript (`kind = 'http'`) e três de infraestrutura,
 | `internal-jobs-prune-history` | sql | `0 7 * * 0` | domingo 04:00 | 60000 | 1 | não |
 | `internal-jobs-health-digest` | http | `0 10 * * *` | 07:00 | 60000 | 2 | não |
 
+O digest é o único que **não** entra na migration da Fase 1: ele é da Fase 4 e ainda não tem handler no registry. Semear uma definição cujo handler não existe deixaria `sync_schedules()` agendar um job que só sabe dar 404. Ele chega com a própria migration, quando o handler chegar — as outras nove já estão em `20260921120000_jobs_runtime.sql`.
+
 Nenhuma agenda coincide com outra dentro do mesmo minuto, exceto o reconciliador de 5 minutos, que é curto. Fica dentro da recomendação da Supabase de no máximo 8 jobs concorrentes e 10 minutos por job, e muito abaixo do teto de 32 do pg_cron.
 
 ### A rota interna
