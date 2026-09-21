@@ -1,0 +1,4 @@
+interface:
+  display_name: "Criar especificação SDD"
+  short_description: "Crie SDDs verificáveis com DBML quando necessário"
+  default_prompt: "Use $create-sdd-spec para pesquisar, desafiar e transformar esta task em uma SDD verificável, incluindo DBML quando o modelo persistente mudar."

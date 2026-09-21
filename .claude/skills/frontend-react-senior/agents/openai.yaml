@@ -1,0 +1,4 @@
+interface:
+  display_name: "Frontend React sênior"
+  short_description: "Projete React escalável, tipado e testável"
+  default_prompt: "Use $frontend-react-senior para planejar e implementar esta mudança React com componentização, estado e fluxo de dados bem definidos."

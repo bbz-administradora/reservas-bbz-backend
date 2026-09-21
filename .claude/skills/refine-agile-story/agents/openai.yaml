@@ -1,0 +1,4 @@
+interface:
+  display_name: "Refinar História Ágil"
+  short_description: "Refina cards ágeis com clareza e concisão"
+  default_prompt: "Use $refine-agile-story para transformar este contexto em uma história ágil breve e testável."

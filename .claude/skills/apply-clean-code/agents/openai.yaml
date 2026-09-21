@@ -1,0 +1,4 @@
+interface:
+  display_name: "Aplicar Clean Code"
+  short_description: "Aplique Clean Code com contexto e segurança"
+  default_prompt: "Use $apply-clean-code para revisar e melhorar este código com princípios de Clean Code, preservando o comportamento."
