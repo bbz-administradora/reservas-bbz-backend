@@ -107,7 +107,7 @@ No front (`reservas-bbz-frontend`), o consumo é `${env.NEXT_PUBLIC_BUCKET}/${ca
 | Criar `og-800x600-bbz.png` e `og-800x600-reserva.png` | Próxima entrega | Estão quebrados hoje e continuam quebrados depois; corrigir exige arte, não migração. Registrar como bug separado |
 | Restringir o `folder` do upload a um enum | Próxima entrega | Reduz superfície, mas muda contrato do endpoint e exige alinhar o front. Ver RB-2 |
 | Autorização por dono no delete de imagem | Próxima entrega | Defeito pré-existente de escopo maior que esta task. Ver RB-3, que trata apenas o contorno mínimo |
-| Migrar os 12 objetos de `images/salas/` para o Supabase | Descartado | Zero referências no banco; copiá-los transporta lixo. São preservados no arquivo morto do S3 (Fase 5) |
+| Migrar os 12 objetos de `images/salas/` para o Supabase | ~~Descartado~~ → **revisto em 22/09/2026** | A decisão original (zero referências no banco, copiá-los transporta lixo) valia enquanto o S3 permanecesse como arquivo morto. Como o bucket vai para Glacier e depois some, a cópia virou arquivamento: os 12 passaram a ser copiados pelo `04-copiar-salas.mjs`, fora do conjunto em uso |
 | Copiar os 2 marcadores de pasta (`email/`, `images/espacos/`) | Descartado | Artefato do console da AWS, não são conteúdo. Os 3 objetos de 0 byte já saem junto com `images/salas/` |
 | Converter as imagens para outro formato ou redimensionar | Descartado | A migração é cópia byte a byte; transformação inviabiliza a verificação por hash (CA-4) |
 | Transform/resize de imagem do Supabase | Descartado | Recurso pago e sem demanda atual |
@@ -308,6 +308,8 @@ Sem superfície visível nova, não há marcadores `data-testid` a declarar.
 - **CA-2** — Dado um espaço sem `qrcode_url`, quando o endpoint de QR code é chamado, então o PNG é gravado em `images/espacos/qrcode/qrcode-espaco-bbz-<spaceId>.png` no Supabase e `spaces.qrcode_url` recebe **o caminho relativo**, não URL absoluta.
 - **CA-3** — Dado um objeto existente, quando `DELETE /v1/private/image/s3/delete` recebe seu `imagePath`, então a resposta é `200` e o objeto não existe mais no bucket.
 - **CA-4** — Dado o inventário do S3, quando a cópia termina, então as 199 chaves em uso (190 dinâmicas + 9 estáticas) existem no Supabase com MD5 idêntico e com a chave inalterada, e os 12 objetos de `images/salas/` (3 deles vazios) e os 2 marcadores de pasta **não** foram copiados.
+
+  > **Revisto em 22/09/2026.** A parte do critério que exigia a ausência de `images/salas/` caiu: os 12 passaram a ser copiados como arquivamento (ver a tabela de alternativas). O que o CA-4 ainda afirma são as **199 chaves em uso**, e é isso que o `03-verificar.mjs` mede — ele ignora o que existe a mais no bucket. Os 2 marcadores de pasta continuam fora.
 - **CA-5** — Dada a migração concluída, quando se compara `spaces` antes e depois, então `count(*)`, `count(qrcode_url)`, a soma de `jsonb_array_length(imagens)` e o `max(updated_at)` são idênticos.
 - **CA-6** — Dado um e-mail transacional disparado após a Fase 3, quando aberto em Gmail e Outlook, então o logo do cabeçalho e os 5 ícones do rodapé renderizam, servidos por `ASSETS_BASE_URL` apontando para o bucket — sem nenhum deploy do front envolvido.
 - **CA-7** — Dado o driver `supabase` ativo, quando `STORAGE_DRIVER` volta para `s3` e a API reinicia, então um upload novo grava no S3 e o boot loga o driver ativo — sem deploy de código e sem tocar no banco.
