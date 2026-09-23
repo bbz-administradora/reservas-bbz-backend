@@ -1,0 +1,4 @@
+interface:
+  display_name: "Executar Flow Feature"
+  short_description: "Orquestre uma issue localmente até o Draft PR, ou só refine o card"
+  default_prompt: "Use $flow-feature para executar uma issue do GitHub localmente até um Draft PR, preservando os gates de contexto, SDD e revisão. Peça o modo refinar quando quiser apenas a história refinada e dimensionada, sem SDD nem implementação."

@@ -5,8 +5,7 @@ import { PgTeamPositionsRepository } from '@/repositories/pg/pg-team-positions-r
 import { sendEmail } from '@/utils/email'
 import { format } from 'date-fns'
 import { ptBR } from 'date-fns/locale'
-import { FastifyInstance } from 'fastify'
-import { AsyncTask, CronJob } from 'toad-scheduler'
+import { JobContext, JobResult } from '../types'
 
 // Repositórios
 const spaceCheckInOutRepository = new PgSpaceCheckInOutRepository()
@@ -22,174 +21,125 @@ interface EarlyCheckoutOccurrence {
   workedHours: number
 }
 
-/**
- * Função auxiliar para adicionar delay entre envios
- */
 function sleep(ms: number): Promise<void> {
   return new Promise((resolve) => setTimeout(resolve, ms))
 }
 
 /**
- * 📧 SEGUNDA-FEIRA: Lembrete de checkout antecipado para supervisores
+ * 📧 SEGUNDA-FEIRA: pendências de checkout antecipado para cada supervisor.
  *
- * Envia email para cada supervisor que tem ocorrências pendentes
- * de checkout antecipado na sua equipe.
+ * Agendado às 05:10 UTC de segunda (02:10 em São Paulo). Supervisor sem
+ * pendência na equipe não recebe e-mail.
+ *
+ * Falha com um supervisor não derruba o lote: entra em `failed` e o job segue.
  */
-function createMondayEarlyCheckoutReminderTask(app: FastifyInstance) {
-  return new AsyncTask(
-    'weekly-early-checkout-monday-reminder',
-    async () => {
-      try {
-        console.log(
-          '🏁 Job de lembrete de checkout antecipado (segunda-feira) iniciado',
-        )
+export async function runMondayEarlyCheckoutReminder(
+  ctx: JobContext,
+): Promise<JobResult> {
+  const supervisors = await teamPositionsRepository.listByPosition('supervisor')
 
-        // Busca todos os supervisores
-        const supervisors =
-          await teamPositionsRepository.listByPosition('supervisor')
+  ctx.log.info(`📧 Verificando ${supervisors.length} supervisores...`)
 
-        console.log(`📧 Verificando ${supervisors.length} supervisores...`)
+  const stats = {
+    supervisors: supervisors.length,
+    emailsSent: 0,
+    skipped: 0,
+    failed: 0,
+  }
 
-        let emailIndex = 0
-        let emailsSent = 0
+  let emailIndex = 0
 
-        for (const supervisor of supervisors) {
-          try {
-            // Controle de taxa de envio
-            if (emailIndex > 0) {
-              await sleep(Math.floor(1000 / EMAILS_PER_SECOND))
-            }
-            emailIndex++
-
-            // Busca IDs dos membros da equipe deste supervisor
-            const teamUserIds =
-              await spaceCheckInOutRepository.getTeamUserIdsBySupervisor(
-                supervisor.userId,
-              )
-
-            if (teamUserIds.length === 0) {
-              console.log(
-                `   ⏭️ ${supervisor.userName}: sem membros na equipe, pulado`,
-              )
-              continue
-            }
-
-            // Busca a data da pendência mais antiga
-            const oldestPendingDate =
-              await spaceCheckInOutRepository.getOldestPendingEarlyCheckoutDate(
-                teamUserIds,
-              )
-
-            // Se não tem pendências, pula este supervisor
-            if (!oldestPendingDate) {
-              console.log(
-                `   ⏭️ ${supervisor.userName}: sem pendências, pulado`,
-              )
-              continue
-            }
-
-            // Busca indicadores para contar pendências
-            const indicators =
-              await spaceCheckInOutRepository.getEarlyCheckoutIndicators({
-                status: 'pending',
-                teamUserIds,
-              })
-
-            if (indicators.pending === 0) {
-              console.log(
-                `   ⏭️ ${supervisor.userName}: sem pendências, pulado`,
-              )
-              continue
-            }
-
-            // Busca as ocorrências pendentes (todas, sem paginação)
-            const { occurrences } =
-              await spaceCheckInOutRepository.listEarlyCheckoutOccurrences({
-                status: 'pending',
-                teamUserIds,
-                page: 1,
-                pageSize: 1000, // Busca todas
-              })
-
-            // Formata o período
-            const periodStart = format(oldestPendingDate, 'dd/MM/yyyy', {
-              locale: ptBR,
-            })
-            const periodEnd = format(new Date(), 'dd/MM/yyyy', { locale: ptBR })
-
-            // Monta lista de ocorrências para o email
-            const pendingOccurrences: EarlyCheckoutOccurrence[] =
-              occurrences.map((o) => ({
-                userName: o.userName || 'Sem nome',
-                position: o.position || 'assistant',
-                checkoutDate: format(new Date(o.checkOutAt), 'dd/MM/yyyy', {
-                  locale: ptBR,
-                }),
-                workedHours: o.workedHours,
-              }))
-
-            await sendEmail({
-              type: 'EARLY_CHECKOUT_REMINDER',
-              to: supervisor.userEmail,
-              data: {
-                supervisorName: supervisor.userName || 'Supervisor',
-                periodStart,
-                periodEnd,
-                pendingCount: indicators.pending,
-                pendingOccurrences,
-              },
-            })
-
-            emailsSent++
-            console.log(
-              `   ✅ Supervisor ${supervisor.userName}: ${indicators.pending} pendência(s)`,
-            )
-          } catch (error) {
-            console.log(
-              `   ❌ Erro ao processar supervisor ${supervisor.userEmail}:`,
-              error,
-            )
-          }
-        }
-
-        console.log(`📊 Job finalizado: ${emailsSent} email(s) enviado(s)`)
-      } catch (error) {
-        app.log.error(
-          { err: error },
-          '❌ Erro no job de lembrete de checkout antecipado',
-        )
+  for (const supervisor of supervisors) {
+    try {
+      if (emailIndex > 0) {
+        await sleep(Math.floor(1000 / EMAILS_PER_SECOND))
       }
-    },
-    (err) => {
-      app.log.error(
-        { err },
-        '❌ Erro na execução do job de lembrete de checkout antecipado',
-      )
-    },
-  )
-}
+      emailIndex++
 
-/**
- * Cria o job de lembrete de checkout antecipado
- * Executa às 02:10 da manhã de segunda-feira (horário de São Paulo)
- *
- * Cron: 0 10 2 * * 1
- * - segundos: 0
- * - minutos: 10
- * - hora: 2
- * - dia do mês: * (qualquer)
- * - mês: * (qualquer)
- * - dia da semana: 1 (segunda-feira)
- */
-export function createMondayEarlyCheckoutReminderJob(app: FastifyInstance) {
-  return new CronJob(
-    {
-      cronExpression: '0 10 2 * * 1', // Segunda às 02:10
-      timezone: 'America/Sao_Paulo',
-    },
-    createMondayEarlyCheckoutReminderTask(app),
-    {
-      preventOverrun: true,
-    },
-  )
+      const teamUserIds =
+        await spaceCheckInOutRepository.getTeamUserIdsBySupervisor(
+          supervisor.userId,
+        )
+
+      if (teamUserIds.length === 0) {
+        ctx.log.info(`   ⏭️ ${supervisor.userName}: sem membros na equipe`)
+        stats.skipped++
+        continue
+      }
+
+      const oldestPendingDate =
+        await spaceCheckInOutRepository.getOldestPendingEarlyCheckoutDate(
+          teamUserIds,
+        )
+
+      if (!oldestPendingDate) {
+        ctx.log.info(`   ⏭️ ${supervisor.userName}: sem pendências`)
+        stats.skipped++
+        continue
+      }
+
+      const indicators =
+        await spaceCheckInOutRepository.getEarlyCheckoutIndicators({
+          status: 'pending',
+          teamUserIds,
+        })
+
+      if (indicators.pending === 0) {
+        ctx.log.info(`   ⏭️ ${supervisor.userName}: sem pendências`)
+        stats.skipped++
+        continue
+      }
+
+      const { occurrences } =
+        await spaceCheckInOutRepository.listEarlyCheckoutOccurrences({
+          status: 'pending',
+          teamUserIds,
+          page: 1,
+          pageSize: 1000, // Busca todas
+        })
+
+      const periodStart = format(oldestPendingDate, 'dd/MM/yyyy', {
+        locale: ptBR,
+      })
+      const periodEnd = format(new Date(), 'dd/MM/yyyy', { locale: ptBR })
+
+      const pendingOccurrences: EarlyCheckoutOccurrence[] = occurrences.map(
+        (o) => ({
+          userName: o.userName || 'Sem nome',
+          position: o.position || 'assistant',
+          checkoutDate: format(new Date(o.checkOutAt), 'dd/MM/yyyy', {
+            locale: ptBR,
+          }),
+          workedHours: o.workedHours,
+        }),
+      )
+
+      await sendEmail({
+        type: 'EARLY_CHECKOUT_REMINDER',
+        to: supervisor.userEmail,
+        data: {
+          supervisorName: supervisor.userName || 'Supervisor',
+          periodStart,
+          periodEnd,
+          pendingCount: indicators.pending,
+          pendingOccurrences,
+        },
+      })
+
+      stats.emailsSent++
+      ctx.log.info(
+        `   ✅ Supervisor ${supervisor.userName}: ${indicators.pending} pendência(s)`,
+      )
+    } catch (error) {
+      stats.failed++
+      ctx.log.error(
+        { err: error },
+        `   ❌ Erro ao processar supervisor ${supervisor.userEmail}`,
+      )
+    }
+  }
+
+  ctx.log.info(`📊 Job finalizado: ${stats.emailsSent} e-mail(s) enviado(s)`)
+
+  return { status: 'succeeded', stats }
 }

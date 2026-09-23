@@ -81,6 +81,42 @@ async function queryWithPool(queryObject: any) {
 }
 
 /**
+ * Executa várias queries no mesmo cliente, dentro de uma transação.
+ *
+ * `database.query` pega um cliente do pool por query, então duas chamadas
+ * seguidas podem cair em conexões diferentes — não há como torná-las atômicas.
+ * Onde dois efeitos precisam valer como um só fato, use esta função.
+ *
+ * O primeiro caso é o job de presença: marcar a reserva como avaliada e somar a
+ * advertência ao usuário. Fora de transação, morrer entre as duas perde a
+ * advertência para sempre, porque a reserva já não está mais `pending` e nenhuma
+ * reexecução a encontra.
+ *
+ * @param fn - Recebe o cliente da transação. Toda query do bloco precisa usá-lo.
+ * @returns O que o callback devolver.
+ * @throws Propaga o erro do callback, depois do ROLLBACK.
+ */
+async function withTransaction<T>(
+  fn: (client: PoolClient) => Promise<T>,
+): Promise<T> {
+  const client = await getNewClient()
+
+  try {
+    await client.query('BEGIN')
+    const result = await fn(client)
+    await client.query('COMMIT')
+    return result
+  } catch (error) {
+    await client.query('ROLLBACK').catch(() => {
+      // Um ROLLBACK que falha não pode mascarar o erro original.
+    })
+    throw error
+  } finally {
+    client.release()
+  }
+}
+
+/**
  * Executa uma query utilizando um cliente novo (fora do pool).
  *
  * Geralmente utilizada para migrações e rotinas administrativas.
@@ -136,6 +172,7 @@ async function getNewClientWithOutPool() {
 const database = {
   setUserContext,
   query: queryWithPool,
+  withTransaction,
   getNewClient,
   getNewClientWithOutPool,
   queryWithoutPool,

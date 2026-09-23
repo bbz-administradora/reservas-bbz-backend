@@ -1,58 +1,32 @@
-import { FastifyInstance } from 'fastify'
-import { AsyncTask, CronJob } from 'toad-scheduler'
 import { database } from '../../database'
+import { JobContext, JobResult } from '../types'
 
 /**
- * Task para limpar slots reservados expirados (uma vez por dia)
+ * Limpeza diária de slots reservados de datas passadas.
+ *
+ * Agendado às 05:50 UTC pelo pg_cron, que é 02:50 em São Paulo — o mesmo
+ * horário de antes. `CURRENT_DATE` continua sendo avaliado em UTC, que é o fuso
+ * da sessão nos dois ambientes: esta mudança troca o relógio, não a semântica.
  */
-function createCleanupExpiredReservationsTask(app: FastifyInstance) {
-  return new AsyncTask(
-    'cleanup-expired-reservations',
-    async () => {
-      try {
-        console.log('🏁 Job de limpeza de reservas expiradas iniciado')
+export async function runCleanupExpiredReservations(
+  ctx: JobContext,
+): Promise<JobResult> {
+  const result = await database.query({
+    text: `
+      DELETE FROM space_slots
+      WHERE status = 'reserved'
+      AND (upper(slot_range))::date < CURRENT_DATE
+      RETURNING id
+    `,
+  })
 
-        const result = await database.query({
-          text: `
-            DELETE FROM space_slots
-            WHERE status = 'reserved'
-            AND (upper(slot_range))::date < CURRENT_DATE
-            RETURNING id
-          `,
-        })
+  const deleted = result.rowCount || 0
 
-        const deletedCount = result.rowCount || 0
-        if (deletedCount > 0) {
-          app.log.info(
-            `🧹 Limpeza diária: ${deletedCount} reservas expiradas foram removidas`,
-          )
-        }
-      } catch (error) {
-        app.log.error({ err: error }, '❌ Erro ao limpar reservas expiradas')
-      }
-    },
-    (err) => {
-      app.log.error(
-        { err },
-        '❌ Erro na execução do job diário de limpeza de reservas',
-      )
-    },
-  )
-}
+  if (deleted > 0) {
+    ctx.log.info(
+      `🧹 Limpeza diária: ${deleted} reservas expiradas foram removidas`,
+    )
+  }
 
-/**
- * Cria o job diário de limpeza de reservas expiradas
- * Executa às 02:50 da manhã (horário de São Paulo)
- */
-export function createExpiredReservationsCleanupJob(app: FastifyInstance) {
-  return new CronJob(
-    {
-      cronExpression: '0 50 2 * * *', // segundos, minutos, hora, dia do mês, mês, dia da semana (* = todo)
-      timezone: 'America/Sao_Paulo',
-    },
-    createCleanupExpiredReservationsTask(app),
-    {
-      preventOverrun: true,
-    },
-  )
+  return { status: 'succeeded', stats: { deleted } }
 }

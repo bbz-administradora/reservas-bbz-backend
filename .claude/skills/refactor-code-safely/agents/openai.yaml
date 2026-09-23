@@ -1,0 +1,4 @@
+interface:
+  display_name: "Refatorar código com segurança"
+  short_description: "Refatore com clareza sem alterar comportamento"
+  default_prompt: "Use $refactor-code-safely para melhorar a estrutura deste código preservando comportamento e contratos."

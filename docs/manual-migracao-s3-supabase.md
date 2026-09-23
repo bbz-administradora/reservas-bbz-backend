@@ -63,6 +63,12 @@ Preservar a chave é o que faz a troca ser só de variável:
 
 `images/salas/` tem 12 arquivos: 3 com 0 byte (`sala-presidencia-*`) e 9 que são cópia byte a byte de arquivos já presentes em `images/espacos/`. Mais os 2 marcadores de pasta de 0 byte (`email/`, `images/espacos/`), artefato do console da AWS — o Supabase Storage não tem esse conceito.
 
+> **Atualização de 22/09/2026 — os 12 de `images/salas/` passaram a ser copiados.** A pedido, como cópia de arquivamento: o S3 vai para Glacier e depois some, e a decisão foi guardar esses arquivos junto com o resto em vez de deixá-los só no arquivo morto. Isso **não** os torna conteúdo em uso — continuam órfãos no banco e nada os lê. O passo é o `scripts/migracao-storage/04-copiar-salas.mjs`, separado do `02` de propósito: o conjunto em uso segue sendo 199.
+>
+> Os 2 marcadores de pasta continuam fora — não são conteúdo.
+>
+> Os 3 `sala-presidencia-*` **não são de 0 byte no export local**: têm 18 bytes e contêm o texto literal `fake-image-content`. O inventário do S3 os mediu como 0 byte em 17/09; o export de 18/09 trouxe esse conteúdo. Vale descobrir de onde veio antes de tratá-los como imagem — cheira a upload de teste apontado para o bucket de produção.
+
 ---
 
 ## 2. Antes de começar

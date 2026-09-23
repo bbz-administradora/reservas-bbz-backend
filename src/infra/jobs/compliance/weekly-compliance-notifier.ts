@@ -6,8 +6,7 @@ import { getNextWeekRange } from '@/utils/date-utils'
 import { sendEmail } from '@/utils/email'
 import { format } from 'date-fns'
 import { ptBR } from 'date-fns/locale'
-import { FastifyInstance } from 'fastify'
-import { AsyncTask, CronJob } from 'toad-scheduler'
+import { JobContext, JobResult } from '../types'
 
 // Repositórios
 const spaceReservationRepository = new PgSpaceReservationRepository()
@@ -24,369 +23,281 @@ interface TeamMember {
   missingDays: number
 }
 
-/**
- * Função auxiliar para adicionar delay entre envios
- */
 function sleep(ms: number): Promise<void> {
   return new Promise((resolve) => setTimeout(resolve, ms))
 }
 
 /**
- * 📧 QUARTA-FEIRA: Lembrete para todos os colaboradores
+ * 📧 QUARTA-FEIRA: lembrete para todos os colaboradores não-compliant.
  *
- * Envia um único email em cópia oculta (BCC) para todos os
- * colaboradores não-compliant, lembrando que hoje é o último dia
- * para fazer reservas de workstation para a próxima semana.
+ * Agendado às 05:00 UTC de quarta (02:00 em São Paulo). Um único e-mail, com
+ * todos em cópia oculta, lembrando que hoje é o último dia para reservar
+ * workstation para a próxima semana.
  */
-function createWednesdayReminderTask(app: FastifyInstance) {
-  return new AsyncTask(
-    'weekly-compliance-wednesday-reminder',
-    async () => {
-      try {
-        console.log('🏁 Job de lembrete de compliance (quarta-feira) iniciado')
+export async function runWednesdayComplianceReminder(
+  ctx: JobContext,
+): Promise<JobResult> {
+  const { startDate, endDate } = getNextWeekRange()
 
-        const { startDate, endDate } = getNextWeekRange()
+  const nextWeekStart = format(startDate, 'dd/MM/yyyy', { locale: ptBR })
+  const nextWeekEnd = format(endDate, 'dd/MM/yyyy', { locale: ptBR })
+  const deadlineDay = 'quarta-feira'
 
-        // Formata as datas para exibição
-        const nextWeekStart = format(startDate, 'dd/MM/yyyy', { locale: ptBR })
-        const nextWeekEnd = format(endDate, 'dd/MM/yyyy', { locale: ptBR })
-        const deadlineDay = 'quarta-feira'
+  const allMembers = await spaceReservationRepository.listNonCompliantUsers(
+    startDate,
+    endDate,
+  )
 
-        // Busca todos os colaboradores que devem cumprir compliance
-        const allMembers =
-          await spaceReservationRepository.listNonCompliantUsers(
-            startDate,
-            endDate,
-          )
+  const nonCompliantMembers = allMembers.filter((m) => !m.isCompliant)
 
-        // Filtra apenas os não-compliant (ainda precisam reservar)
-        const nonCompliantMembers = allMembers.filter((m) => !m.isCompliant)
+  if (nonCompliantMembers.length === 0) {
+    ctx.log.info(
+      '✅ Todos os colaboradores já cumpriram o compliance. Nenhum e-mail enviado.',
+    )
+    return {
+      status: 'succeeded',
+      stats: { members: allMembers.length, nonCompliant: 0, emailsSent: 0 },
+    }
+  }
 
-        if (nonCompliantMembers.length === 0) {
-          console.log(
-            '✅ Todos os colaboradores já cumpriram o compliance. Nenhum email enviado.',
-          )
-          return
-        }
+  const bccEmails = nonCompliantMembers.map((m) => m.userEmail).join(', ')
 
-        // Coleta todos os emails em uma lista para BCC
-        const bccEmails = nonCompliantMembers.map((m) => m.userEmail).join(', ')
+  ctx.log.info(
+    `📧 Enviando lembrete único para ${nonCompliantMembers.length} colaboradores em BCC...`,
+  )
 
-        console.log(
-          `📧 Enviando lembrete único para ${nonCompliantMembers.length} colaboradores em BCC...`,
+  await sendEmail({
+    type: 'WEEKLY_COMPLIANCE_REMINDER',
+    to: 'noreply@bbz-gestao.com.br', // Destinatário principal (não aparece)
+    bcc: bccEmails, // Todos em cópia oculta
+    data: {
+      nextWeekStart,
+      nextWeekEnd,
+      deadlineDay,
+    },
+  })
+
+  return {
+    status: 'succeeded',
+    stats: {
+      members: allMembers.length,
+      nonCompliant: nonCompliantMembers.length,
+      emailsSent: 1,
+    },
+  }
+}
+
+/**
+ * 📊 SEXTA-FEIRA: relatório para supervisores e diretores.
+ *
+ * Agendado às 05:00 UTC de sexta (02:00 em São Paulo). Supervisores recebem os
+ * pendentes da própria equipe; diretores, o consolidado por supervisor.
+ *
+ * Falha de envio a um destinatário não derruba o lote: ela entra em `failed` e
+ * o job segue para o próximo.
+ */
+export async function runFridayComplianceReport(
+  ctx: JobContext,
+): Promise<JobResult> {
+  const { startDate, endDate } = getNextWeekRange()
+
+  const nextWeekStart = format(startDate, 'dd/MM/yyyy', { locale: ptBR })
+  const nextWeekEnd = format(endDate, 'dd/MM/yyyy', { locale: ptBR })
+
+  const allMembers = await spaceReservationRepository.listNonCompliantUsers(
+    startDate,
+    endDate,
+  )
+
+  const compliantCount = allMembers.filter((m) => m.isCompliant).length
+  const nonCompliantCount = allMembers.filter((m) => !m.isCompliant).length
+
+  ctx.log.info(
+    `📊 Status geral: ${compliantCount} compliant, ${nonCompliantCount} não-compliant`,
+  )
+
+  if (nonCompliantCount === 0) {
+    ctx.log.info(
+      '✅ Todos os colaboradores cumpriram o compliance. Nenhum relatório enviado.',
+    )
+    return {
+      status: 'succeeded',
+      stats: {
+        members: allMembers.length,
+        nonCompliant: 0,
+        supervisorEmails: 0,
+        directorEmails: 0,
+        failed: 0,
+      },
+    }
+  }
+
+  const stats = {
+    members: allMembers.length,
+    nonCompliant: nonCompliantCount,
+    supervisorEmails: 0,
+    supervisorsSkipped: 0,
+    directorEmails: 0,
+    failed: 0,
+  }
+
+  let emailIndex = 0
+
+  // 📧 1. SUPERVISORES
+  const supervisors = await teamPositionsRepository.listByPosition('supervisor')
+
+  ctx.log.info(
+    `📧 Enviando relatório para ${supervisors.length} supervisores...`,
+  )
+
+  for (const supervisor of supervisors) {
+    try {
+      if (emailIndex > 0) {
+        await sleep(Math.floor(1000 / EMAILS_PER_SECOND))
+      }
+      emailIndex++
+
+      const teamMembers =
+        await spaceReservationRepository.listNonCompliantUsers(
+          startDate,
+          endDate,
+          supervisor.id, // positionId do supervisor
         )
 
-        try {
-          await sendEmail({
-            type: 'WEEKLY_COMPLIANCE_REMINDER',
-            to: 'noreply@bbz-gestao.com.br', // Destinatário principal (não aparece)
-            bcc: bccEmails, // Todos em cópia oculta
-            data: {
-              nextWeekStart,
-              nextWeekEnd,
-              deadlineDay,
-            },
+      const teamCompliantCount = teamMembers.filter((m) => m.isCompliant).length
+      const teamNonCompliantCount = teamMembers.filter(
+        (m) => !m.isCompliant,
+      ).length
+
+      if (teamNonCompliantCount === 0) {
+        ctx.log.info(
+          `   ⏭️ ${supervisor.userName}: equipe 100% compliant, e-mail pulado`,
+        )
+        stats.supervisorsSkipped++
+        continue
+      }
+
+      const nonCompliantTeamMembers: TeamMember[] = teamMembers
+        .filter((m) => !m.isCompliant)
+        .map((m) => ({
+          userName: m.userName || 'Sem nome',
+          position: m.position,
+          requiredDays: m.requiredDays,
+          reservedDays: m.reservedDays,
+          missingDays: Math.max(0, m.requiredDays - m.reservedDays),
+        }))
+
+      await sendEmail({
+        type: 'SUPERVISOR_COMPLIANCE_ALERT',
+        to: supervisor.userEmail,
+        data: {
+          supervisorName: supervisor.userName || 'Supervisor',
+          nextWeekStart,
+          nextWeekEnd,
+          totalMembers: teamMembers.length,
+          compliantCount: teamCompliantCount,
+          nonCompliantCount: teamNonCompliantCount,
+          nonCompliantMembers: nonCompliantTeamMembers,
+        },
+      })
+
+      stats.supervisorEmails++
+      ctx.log.info(
+        `   ✅ Supervisor ${supervisor.userName}: ${teamNonCompliantCount} pendentes`,
+      )
+    } catch (error) {
+      stats.failed++
+      ctx.log.error(
+        { err: error },
+        `   ❌ Erro ao enviar para supervisor ${supervisor.userEmail}`,
+      )
+    }
+  }
+
+  // 📧 2. DIRETORES
+  const directors = await teamPositionsRepository.listByPosition('director')
+
+  ctx.log.info(`📧 Enviando relatório para ${directors.length} diretores...`)
+
+  for (const director of directors) {
+    try {
+      if (emailIndex > 0) {
+        await sleep(Math.floor(1000 / EMAILS_PER_SECOND))
+      }
+      emailIndex++
+
+      // Consolidado por supervisor.
+      const supervisorsSummaryMap = new Map<
+        string,
+        {
+          supervisorName: string
+          totalMembers: number
+          compliantCount: number
+          nonCompliantCount: number
+          nonCompliantMembers: TeamMember[]
+        }
+      >()
+
+      for (const member of allMembers) {
+        const supName = member.supervisorName || 'Sem supervisor'
+
+        if (!supervisorsSummaryMap.has(supName)) {
+          supervisorsSummaryMap.set(supName, {
+            supervisorName: supName,
+            totalMembers: 0,
+            compliantCount: 0,
+            nonCompliantCount: 0,
+            nonCompliantMembers: [],
           })
-
-          console.log(
-            `✅ Email enviado com sucesso para ${nonCompliantMembers.length} destinatários`,
-          )
-        } catch (error) {
-          console.log('❌ Erro ao enviar email de lembrete:', error)
         }
-      } catch (error) {
-        app.log.error(
-          { err: error },
-          '❌ Erro no job de lembrete de compliance',
-        )
+
+        const summary = supervisorsSummaryMap.get(supName)!
+        summary.totalMembers++
+
+        if (member.isCompliant) {
+          summary.compliantCount++
+        } else {
+          summary.nonCompliantCount++
+          summary.nonCompliantMembers.push({
+            userName: member.userName || 'Sem nome',
+            position: member.position,
+            requiredDays: member.requiredDays,
+            reservedDays: member.reservedDays,
+            missingDays: Math.max(0, member.requiredDays - member.reservedDays),
+          })
+        }
       }
-    },
-    (err) => {
-      app.log.error(
-        { err },
-        '❌ Erro na execução do job de lembrete de compliance',
+
+      const supervisorsSummary = Array.from(supervisorsSummaryMap.values())
+        .filter((s) => s.nonCompliantCount > 0)
+        .sort((a, b) => b.nonCompliantCount - a.nonCompliantCount)
+
+      await sendEmail({
+        type: 'DIRECTOR_COMPLIANCE_ALERT',
+        to: director.userEmail,
+        data: {
+          directorName: director.userName || 'Diretor',
+          nextWeekStart,
+          nextWeekEnd,
+          totalMembers: allMembers.length,
+          compliantCount,
+          nonCompliantCount,
+          supervisorsSummary,
+        },
+      })
+
+      stats.directorEmails++
+      ctx.log.info(
+        `   ✅ Diretor ${director.userName}: relatório consolidado enviado`,
       )
-    },
-  )
-}
-
-/**
- * 📊 SEXTA-FEIRA: Relatório para supervisores e diretores
- *
- * Envia emails de relatório para:
- * - Supervisores: lista dos membros não-compliant da sua equipe
- * - Diretores: relatório consolidado de todos os colaboradores
- */
-function createFridayReportTask(app: FastifyInstance) {
-  return new AsyncTask(
-    'weekly-compliance-friday-report',
-    async () => {
-      try {
-        console.log('🏁 Job de relatório de compliance (sexta-feira) iniciado')
-
-        const { startDate, endDate } = getNextWeekRange()
-
-        // Formata as datas para exibição
-        const nextWeekStart = format(startDate, 'dd/MM/yyyy', { locale: ptBR })
-        const nextWeekEnd = format(endDate, 'dd/MM/yyyy', { locale: ptBR })
-
-        // Busca todos os colaboradores com status de compliance
-        const allMembers =
-          await spaceReservationRepository.listNonCompliantUsers(
-            startDate,
-            endDate,
-          )
-
-        const compliantCount = allMembers.filter((m) => m.isCompliant).length
-        const nonCompliantCount = allMembers.filter(
-          (m) => !m.isCompliant,
-        ).length
-
-        console.log(
-          `📊 Status geral: ${compliantCount} compliant, ${nonCompliantCount} não-compliant`,
-        )
-
-        // Se todo mundo cumpriu, não precisa enviar relatório
-        if (nonCompliantCount === 0) {
-          console.log(
-            '✅ Todos os colaboradores cumpriram o compliance. Nenhum relatório enviado.',
-          )
-          return
-        }
-
-        // 📧 1. ENVIAR PARA SUPERVISORES
-        const supervisors =
-          await teamPositionsRepository.listByPosition('supervisor')
-
-        console.log(
-          `📧 Enviando relatório para ${supervisors.length} supervisores...`,
-        )
-
-        let emailIndex = 0
-
-        for (const supervisor of supervisors) {
-          try {
-            // Controle de taxa de envio
-            if (emailIndex > 0) {
-              await sleep(Math.floor(1000 / EMAILS_PER_SECOND))
-            }
-            emailIndex++
-
-            // Busca membros da equipe deste supervisor
-            const teamMembers =
-              await spaceReservationRepository.listNonCompliantUsers(
-                startDate,
-                endDate,
-                supervisor.id, // positionId do supervisor
-              )
-
-            const teamCompliantCount = teamMembers.filter(
-              (m) => m.isCompliant,
-            ).length
-            const teamNonCompliantCount = teamMembers.filter(
-              (m) => !m.isCompliant,
-            ).length
-
-            // Se a equipe está toda em dia, não envia email
-            if (teamNonCompliantCount === 0) {
-              console.log(
-                `   ⏭️ ${supervisor.userName}: equipe 100% compliant, email pulado`,
-              )
-              continue
-            }
-
-            // Monta lista de membros não-compliant
-            const nonCompliantTeamMembers: TeamMember[] = teamMembers
-              .filter((m) => !m.isCompliant)
-              .map((m) => ({
-                userName: m.userName || 'Sem nome',
-                position: m.position,
-                requiredDays: m.requiredDays,
-                reservedDays: m.reservedDays,
-                missingDays: Math.max(0, m.requiredDays - m.reservedDays),
-              }))
-
-            await sendEmail({
-              type: 'SUPERVISOR_COMPLIANCE_ALERT',
-              to: supervisor.userEmail,
-              data: {
-                supervisorName: supervisor.userName || 'Supervisor',
-                nextWeekStart,
-                nextWeekEnd,
-                totalMembers: teamMembers.length,
-                compliantCount: teamCompliantCount,
-                nonCompliantCount: teamNonCompliantCount,
-                nonCompliantMembers: nonCompliantTeamMembers,
-              },
-            })
-
-            console.log(
-              `   ✅ Supervisor ${supervisor.userName}: ${teamNonCompliantCount} pendentes`,
-            )
-          } catch (error) {
-            console.log(
-              `   ❌ Erro ao enviar para supervisor ${supervisor.userEmail}:`,
-              error,
-            )
-          }
-        }
-
-        // 📧 2. ENVIAR PARA DIRETORES
-        const directors =
-          await teamPositionsRepository.listByPosition('director')
-
-        console.log(
-          `📧 Enviando relatório para ${directors.length} diretores...`,
-        )
-
-        for (const director of directors) {
-          try {
-            // Controle de taxa de envio
-            if (emailIndex > 0) {
-              await sleep(Math.floor(1000 / EMAILS_PER_SECOND))
-            }
-            emailIndex++
-
-            // Agrupa membros por supervisor para o relatório consolidado
-            const supervisorsSummaryMap = new Map<
-              string,
-              {
-                supervisorName: string
-                totalMembers: number
-                compliantCount: number
-                nonCompliantCount: number
-                nonCompliantMembers: TeamMember[]
-              }
-            >()
-
-            for (const member of allMembers) {
-              const supName = member.supervisorName || 'Sem supervisor'
-
-              if (!supervisorsSummaryMap.has(supName)) {
-                supervisorsSummaryMap.set(supName, {
-                  supervisorName: supName,
-                  totalMembers: 0,
-                  compliantCount: 0,
-                  nonCompliantCount: 0,
-                  nonCompliantMembers: [],
-                })
-              }
-
-              const summary = supervisorsSummaryMap.get(supName)!
-              summary.totalMembers++
-
-              if (member.isCompliant) {
-                summary.compliantCount++
-              } else {
-                summary.nonCompliantCount++
-                summary.nonCompliantMembers.push({
-                  userName: member.userName || 'Sem nome',
-                  position: member.position,
-                  requiredDays: member.requiredDays,
-                  reservedDays: member.reservedDays,
-                  missingDays: Math.max(
-                    0,
-                    member.requiredDays - member.reservedDays,
-                  ),
-                })
-              }
-            }
-
-            // Filtra apenas supervisores com membros não-compliant
-            const supervisorsSummary = Array.from(
-              supervisorsSummaryMap.values(),
-            )
-              .filter((s) => s.nonCompliantCount > 0)
-              .sort((a, b) => b.nonCompliantCount - a.nonCompliantCount)
-
-            await sendEmail({
-              type: 'DIRECTOR_COMPLIANCE_ALERT',
-              to: director.userEmail,
-              data: {
-                directorName: director.userName || 'Diretor',
-                nextWeekStart,
-                nextWeekEnd,
-                totalMembers: allMembers.length,
-                compliantCount,
-                nonCompliantCount,
-                supervisorsSummary,
-              },
-            })
-
-            console.log(
-              `   ✅ Diretor ${director.userName}: relatório consolidado enviado`,
-            )
-          } catch (error) {
-            console.log(
-              `   ❌ Erro ao enviar para diretor ${director.userEmail}:`,
-              error,
-            )
-          }
-        }
-
-        console.log('📊 Job de relatório de compliance finalizado')
-      } catch (error) {
-        app.log.error(
-          { err: error },
-          '❌ Erro no job de relatório de compliance',
-        )
-      }
-    },
-    (err) => {
-      app.log.error(
-        { err },
-        '❌ Erro na execução do job de relatório de compliance',
+    } catch (error) {
+      stats.failed++
+      ctx.log.error(
+        { err: error },
+        `   ❌ Erro ao enviar para diretor ${director.userEmail}`,
       )
-    },
-  )
-}
+    }
+  }
 
-/**
- * Cria o job de lembrete de quarta-feira
- * Executa às 02:00 da manhã (horário de São Paulo)
- *
- * Cron: 0 0 2 * * 3
- * - segundos: 0
- * - minutos: 0
- * - hora: 2
- * - dia do mês: * (qualquer)
- * - mês: * (qualquer)
- * - dia da semana: 3 (quarta-feira)
- */
-export function createWednesdayComplianceReminderJob(app: FastifyInstance) {
-  return new CronJob(
-    {
-      cronExpression: '0 0 2 * * 3', // Quarta às 02:00
-      timezone: 'America/Sao_Paulo',
-    },
-    createWednesdayReminderTask(app),
-    {
-      preventOverrun: true,
-    },
-  )
-}
-
-/**
- * Cria o job de relatório de sexta-feira
- * Executa às 02:00 da manhã (horário de São Paulo)
- *
- * Cron: 0 0 2 * * 5
- * - segundos: 0
- * - minutos: 0
- * - hora: 2
- * - dia do mês: * (qualquer)
- * - mês: * (qualquer)
- * - dia da semana: 5 (sexta-feira)
- */
-export function createFridayComplianceReportJob(app: FastifyInstance) {
-  return new CronJob(
-    {
-      cronExpression: '0 0 2 * * 5', // Sexta às 02:00
-      timezone: 'America/Sao_Paulo',
-    },
-    createFridayReportTask(app),
-    {
-      preventOverrun: true,
-    },
-  )
+  return { status: 'succeeded', stats }
 }
