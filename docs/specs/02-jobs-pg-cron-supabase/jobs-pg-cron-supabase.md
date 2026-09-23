@@ -111,7 +111,7 @@ Existe um segundo sistema de migration, o `node-pg-migrate` em [src/infra/migrat
 - **RF-3**: Os jobs do próprio runtime (`internal-jobs-reconcile` e `internal-jobs-prune-history`) executam dentro do Postgres, sem chamada HTTP, porque precisam funcionar quando o caminho HTTP está quebrado.
 - **RF-4**: Toda execução de job **de negócio** — automática ou manual — gera uma linha em `jobs.job_run` com `status`, `started_at`, `finished_at`, `stats` e, em caso de falha, `error`. Os jobs de runtime (`internal-jobs-reconcile` e `internal-jobs-prune-history`) só gravam quando **agiram** ou falharam: rodando a cada 5 minutos, o reconciliador sozinho produziria 288 linhas por dia contra ~58 de todos os jobs de negócio somados, e o ledger viraria registro do watchdog em vez de registro do trabalho. Quem prova que eles estão vivos é `cron.job_run_details`, que registra toda execução sempre.
 - **RF-5**: As agendas são declaradas em `jobs.job_definition` e aplicadas ao `cron.job` por `jobs.sync_schedules()`. Ninguém chama `cron.schedule` à mão.
-- **RF-6**: Execução manual de qualquer job é uma linha de SQL (`select jobs.trigger_http('<nome>', 'manual')` ou `select jobs.run_sql('<nome>')`), com registro no ledger igual ao do disparo automático.
+- **RF-6**: Execução manual de qualquer job é uma linha de SQL (`select jobs.trigger_http('<nome>', 'manual')` ou `select jobs.run_sql('<nome>')`), com registro no ledger igual ao do disparo automático. **Disparo manual funciona mesmo com o job `enabled = false`** — é assim que se confere o caminho antes de ligar a agenda, e sem isso o procedimento de cutover da §11 seria impossível. Já o disparo por `pg_cron` ou `retry` respeita o `enabled`: desligado significa que o relógio não toca nele.
 - **RF-7**: Execução que falhou ou terminou parcial é retentada automaticamente até `max_attempts`, preservando o `scheduled_for` original.
 - **RF-8**: Um digest diário por e-mail reporta job que falhou, ficou parcial ou não rodou na janela esperada.
 - **RF-9**: Em desenvolvimento, cada job é executável sob demanda por `npm run job:run -- <nome>`, sem pg_cron local e sem disparo automático.
@@ -298,7 +298,7 @@ select vault.create_secret('<bypass da Vercel>',            'jobs_protection_byp
 
 Esqueleto do que a migration cria. Não é pseudocódigo: é a forma pretendida.
 
-Três regras valem para todas. **`security invoker`**, que é o default: o único chamador é `postgres`, dono de todos os objetos, então `security definer` não compraria nada e abriria a classe de problema que o linter do Supabase chama de `function_search_path_mutable`. **`set search_path = ''`**, com todo objeto qualificado pelo schema — é o que impede que um schema plantado no caminho de busca sequestre `public.space_slots`. E **nenhum `grant execute` para `anon` ou `authenticated`**.
+Três regras valem para todas. **`security invoker`**, que é o default: o único chamador é `postgres`, dono de todos os objetos, então `security definer` não compraria nada e abriria a classe de problema que o linter do Supabase chama de `function_search_path_mutable`. **`set search_path = ''`**, com todo objeto **fora do `pg_catalog`** qualificado pelo schema — é o que impede que um schema plantado no caminho de busca sequestre `public.space_slots`. O `pg_catalog` não precisa de prefixo porque o Postgres sempre o pesquisa, mesmo com o caminho vazio; qualificá-lo só acrescenta ruído e convida ao erro de prefixar o que não é função (`coalesce`, `sqlerrm` e companhia são construções da linguagem, e `pg_catalog.coalesce` não existe). E **nenhum `grant execute` para `anon` ou `authenticated`**.
 
 ```sql
 create schema if not exists jobs;
@@ -330,7 +330,7 @@ declare
 begin
   for d in select * from jobs.job_definition order by name loop
     -- Validacao 1: o job SQL aponta para uma funcao que existe.
-    if d.kind = 'sql' and pg_catalog.to_regprocedure(d.sql_function || '()') is null then
+    if d.kind = 'sql' and to_regprocedure(d.sql_function || '()') is null then
       raise exception 'job %: funcao % nao existe', d.name, d.sql_function;
     end if;
 
@@ -345,8 +345,8 @@ begin
         d.name,
         d.schedule_utc,
         case d.kind
-          when 'sql'  then pg_catalog.format('select jobs.run_sql(%L)', d.name)
-          else             pg_catalog.format('select jobs.trigger_http(%L)', d.name)
+          when 'sql'  then format('select jobs.run_sql(%L)', d.name)
+          else             format('select jobs.trigger_http(%L)', d.name)
         end
       );
       return query select d.name, 'agendado'::text;
@@ -372,8 +372,8 @@ set search_path = ''
 as $$
 declare
   d        jobs.job_definition;
-  v_slot   timestamptz := pg_catalog.date_trunc('minute', pg_catalog.now());
-  v_inicio timestamptz := pg_catalog.clock_timestamp();
+  v_slot   timestamptz := date_trunc('minute', now());
+  v_inicio timestamptz := clock_timestamp();
   v_stats  jsonb;
   v_erro   text;
 begin
@@ -385,31 +385,31 @@ begin
 
   -- O equivalente honesto do preventOverrun: se a execucao anterior ainda
   -- roda, esta desiste e fica registrada como skipped.
-  if not pg_catalog.pg_try_advisory_xact_lock(pg_catalog.hashtextextended(p_job, 0)) then
+  if not pg_try_advisory_xact_lock(hashtextextended(p_job, 0)) then
     insert into jobs.job_run (job_name, scheduled_for, status, trigger, error)
     values (p_job, v_slot, 'skipped', p_trigger, 'execucao anterior em andamento');
     return;
   end if;
 
   -- O timeout_ms da definicao vira limite real de execucao.
-  perform pg_catalog.set_config('statement_timeout', d.timeout_ms::text, true);
+  perform set_config('statement_timeout', d.timeout_ms::text, true);
 
   begin
-    execute pg_catalog.format('select %s()', d.sql_function) into v_stats;
+    execute format('select %s()', d.sql_function) into v_stats;
   exception when others then
-    v_erro := pg_catalog.sqlstate || ': ' || pg_catalog.sqlerrm;
+    v_erro := sqlstate || ': ' || sqlerrm;
   end;
 
   -- RF-4: job de runtime so entra no ledger quando agiu ou falhou. Quem prova
   -- que ele esta vivo a cada 5 minutos e cron.job_run_details.
-  if v_erro is not null or pg_catalog.coalesce((v_stats->>'acted')::boolean, false) then
+  if v_erro is not null or coalesce((v_stats->>'acted')::boolean, false) then
     insert into jobs.job_run
       (job_name, scheduled_for, status, trigger, started_at, finished_at, stats, error)
     values (
       p_job, v_slot,
       case when v_erro is null then 'succeeded' else 'failed' end,
-      p_trigger, v_inicio, pg_catalog.clock_timestamp(),
-      pg_catalog.coalesce(v_stats, '{}'::jsonb), v_erro
+      p_trigger, v_inicio, clock_timestamp(),
+      coalesce(v_stats, '{}'::jsonb), v_erro
     );
   end if;
 end;
@@ -432,7 +432,7 @@ set search_path = ''
 as $$
 declare
   d          jobs.job_definition;
-  v_slot     timestamptz := pg_catalog.coalesce(p_scheduled_for, pg_catalog.date_trunc('minute', pg_catalog.now()));
+  v_slot     timestamptz := coalesce(p_scheduled_for, date_trunc('minute', now()));
   v_base     text;
   v_secret   text;
   v_bypass   text;
@@ -457,8 +457,8 @@ begin
     select 1 from jobs.job_run r
      where r.job_name = p_job
        and r.status in ('dispatched','running')
-       and pg_catalog.coalesce(r.started_at, r.created_at) >
-           pg_catalog.now() - (d.timeout_ms * interval '1 millisecond') - interval '60 seconds'
+       and coalesce(r.started_at, r.created_at) >
+           now() - (d.timeout_ms * interval '1 millisecond') - interval '60 seconds'
   ) then
     insert into jobs.job_run (job_name, scheduled_for, attempt, status, trigger, error)
     values (p_job, v_slot, p_attempt, 'skipped', p_trigger, 'execucao anterior em andamento');
@@ -469,19 +469,19 @@ begin
   values (p_job, v_slot, p_attempt, 'dispatched', p_trigger)
   returning id into v_run;
 
-  v_headers := pg_catalog.jsonb_build_object(
+  v_headers := jsonb_build_object(
     'Content-Type',  'application/json',
     'x-jobs-secret', v_secret
   );
 
   select decrypted_secret into v_bypass from vault.decrypted_secrets where name = 'jobs_protection_bypass';
   if v_bypass is not null then
-    v_headers := v_headers || pg_catalog.jsonb_build_object('x-vercel-protection-bypass', v_bypass);
+    v_headers := v_headers || jsonb_build_object('x-vercel-protection-bypass', v_bypass);
   end if;
 
   select net.http_post(
     url                  := v_base || d.http_path,
-    body                 := pg_catalog.jsonb_build_object(
+    body                 := jsonb_build_object(
                               'job',          p_job,
                               'runId',        v_run,
                               'scheduledFor', v_slot,

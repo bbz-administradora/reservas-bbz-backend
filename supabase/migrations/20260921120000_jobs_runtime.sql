@@ -146,7 +146,7 @@ declare
 begin
   update jobs.job_run
      set status = 'running',
-         started_at = pg_catalog.now()
+         started_at = now()
    where id = p_run
      and job_name = p_job
      and status = 'dispatched';
@@ -172,8 +172,8 @@ as $$
 begin
   update jobs.job_run
      set status = p_status,
-         finished_at = pg_catalog.now(),
-         stats = pg_catalog.coalesce(p_stats, '{}'::jsonb),
+         finished_at = now(),
+         stats = coalesce(p_stats, '{}'::jsonb),
          error = p_error
    where id = p_run;
 end;
@@ -191,9 +191,9 @@ set search_path = ''
 as $$
 declare
   d         jobs.job_definition;
-  v_slot    timestamptz := pg_catalog.coalesce(
+  v_slot    timestamptz := coalesce(
                              p_scheduled_for,
-                             pg_catalog.date_trunc('minute', pg_catalog.now())
+                             date_trunc('minute', now())
                            );
   v_base    text;
   v_secret  text;
@@ -202,9 +202,14 @@ declare
   v_run     bigint;
   v_request bigint;
 begin
+  -- Disparo manual passa mesmo com o job desligado: e assim que se confere o
+  -- caminho antes de ligar a agenda. O relogio (pg_cron) e o retry respeitam o
+  -- enabled, que e o que "desligado" precisa significar.
   select * into d
     from jobs.job_definition
-   where name = p_job and enabled and kind = 'http';
+   where name = p_job
+     and kind = 'http'
+     and (enabled or p_trigger = 'manual');
 
   if not found then
     raise warning 'job % inexistente, desabilitado ou nao-http', p_job;
@@ -226,8 +231,8 @@ begin
       from jobs.job_run r
      where r.job_name = p_job
        and r.status in ('dispatched','running')
-       and pg_catalog.coalesce(r.started_at, r.created_at) >
-           pg_catalog.now() - (d.timeout_ms * interval '1 millisecond') - interval '60 seconds'
+       and coalesce(r.started_at, r.created_at) >
+           now() - (d.timeout_ms * interval '1 millisecond') - interval '60 seconds'
   ) then
     insert into jobs.job_run (job_name, scheduled_for, attempt, status, trigger, error)
     values (p_job, v_slot, p_attempt, 'skipped', p_trigger, 'execucao anterior em andamento');
@@ -238,7 +243,7 @@ begin
   values (p_job, v_slot, p_attempt, 'dispatched', p_trigger)
   returning id into v_run;
 
-  v_headers := pg_catalog.jsonb_build_object(
+  v_headers := jsonb_build_object(
     'Content-Type',  'application/json',
     'x-jobs-secret', v_secret
   );
@@ -247,7 +252,7 @@ begin
     from vault.decrypted_secrets where name = 'jobs_protection_bypass';
 
   if v_bypass is not null then
-    v_headers := v_headers || pg_catalog.jsonb_build_object(
+    v_headers := v_headers || jsonb_build_object(
       'x-vercel-protection-bypass', v_bypass
     );
   end if;
@@ -256,7 +261,7 @@ begin
   -- sao atomicos, e nao existe estado em que um saiu sem o outro.
   select net.http_post(
     url                  := v_base || d.http_path,
-    body                 := pg_catalog.jsonb_build_object(
+    body                 := jsonb_build_object(
                               'job',          p_job,
                               'runId',        v_run,
                               'scheduledFor', v_slot,
@@ -278,12 +283,16 @@ set search_path = ''
 as $$
 declare
   d        jobs.job_definition;
-  v_slot   timestamptz := pg_catalog.date_trunc('minute', pg_catalog.now());
-  v_inicio timestamptz := pg_catalog.clock_timestamp();
+  v_slot   timestamptz := date_trunc('minute', now());
+  v_inicio timestamptz := clock_timestamp();
   v_stats  jsonb;
   v_erro   text;
 begin
-  select * into d from jobs.job_definition where name = p_job and enabled;
+  -- Mesma regra do trigger_http: manual passa, relogio respeita o enabled.
+  select * into d
+    from jobs.job_definition
+   where name = p_job
+     and (enabled or p_trigger = 'manual');
 
   if not found then
     raise warning 'job % inexistente ou desabilitado', p_job;
@@ -291,30 +300,30 @@ begin
   end if;
 
   -- O equivalente honesto do preventOverrun.
-  if not pg_catalog.pg_try_advisory_xact_lock(pg_catalog.hashtextextended(p_job, 0)) then
+  if not pg_try_advisory_xact_lock(hashtextextended(p_job, 0)) then
     insert into jobs.job_run (job_name, scheduled_for, status, trigger, error)
     values (p_job, v_slot, 'skipped', p_trigger, 'execucao anterior em andamento');
     return;
   end if;
 
-  perform pg_catalog.set_config('statement_timeout', d.timeout_ms::text, true);
+  perform set_config('statement_timeout', d.timeout_ms::text, true);
 
   begin
-    execute pg_catalog.format('select %s()', d.sql_function) into v_stats;
+    execute format('select %s()', d.sql_function) into v_stats;
   exception when others then
-    v_erro := pg_catalog.sqlstate || ': ' || pg_catalog.sqlerrm;
+    v_erro := sqlstate || ': ' || sqlerrm;
   end;
 
   -- Job de runtime so entra no ledger quando agiu ou falhou. Liveness dele se
   -- prova em cron.job_run_details, que registra toda execucao.
-  if v_erro is not null or pg_catalog.coalesce((v_stats->>'acted')::boolean, false) then
+  if v_erro is not null or coalesce((v_stats->>'acted')::boolean, false) then
     insert into jobs.job_run
       (job_name, scheduled_for, status, trigger, started_at, finished_at, stats, error)
     values (
       p_job, v_slot,
       case when v_erro is null then 'succeeded' else 'failed' end,
-      p_trigger, v_inicio, pg_catalog.clock_timestamp(),
-      pg_catalog.coalesce(v_stats, '{}'::jsonb), v_erro
+      p_trigger, v_inicio, clock_timestamp(),
+      coalesce(v_stats, '{}'::jsonb), v_erro
     );
   end if;
 end;
@@ -329,7 +338,7 @@ declare
   d record;
 begin
   for d in select * from jobs.job_definition order by name loop
-    if d.kind = 'sql' and pg_catalog.to_regprocedure(d.sql_function || '()') is null then
+    if d.kind = 'sql' and to_regprocedure(d.sql_function || '()') is null then
       raise exception 'job %: funcao % nao existe', d.name, d.sql_function;
     end if;
 
@@ -338,8 +347,8 @@ begin
         d.name,
         d.schedule_utc,
         case d.kind
-          when 'sql'  then pg_catalog.format('select jobs.run_sql(%L)', d.name)
-          else             pg_catalog.format('select jobs.trigger_http(%L)', d.name)
+          when 'sql'  then format('select jobs.run_sql(%L)', d.name)
+          else             format('select jobs.trigger_http(%L)', d.name)
         end
       );
       return query select d.name, 'agendado'::text;
@@ -375,10 +384,10 @@ begin
   with travadas as (
     update jobs.job_run jr
        set status = 'failed',
-           finished_at = pg_catalog.now(),
-           error = pg_catalog.coalesce(
+           finished_at = now(),
+           error = coalesce(
              (select 'http ' || resp.status_code::text ||
-                     pg_catalog.coalesce(' ' || resp.error_msg, '')
+                     coalesce(' ' || resp.error_msg, '')
                 from net._http_response resp
                where resp.id = jr.request_id),
              'sem resposta registrada'
@@ -386,11 +395,11 @@ begin
       from jobs.job_definition d
      where d.name = jr.job_name
        and jr.status in ('dispatched','running')
-       and pg_catalog.coalesce(jr.started_at, jr.created_at) <
-           pg_catalog.now() - (d.timeout_ms * interval '1 millisecond') - interval '60 seconds'
+       and coalesce(jr.started_at, jr.created_at) <
+           now() - (d.timeout_ms * interval '1 millisecond') - interval '60 seconds'
     returning jr.id
   )
-  select pg_catalog.count(*)::integer into v_expiradas from travadas;
+  select count(*)::integer into v_expiradas from travadas;
 
   -- (b) retry, preservando o scheduled_for original.
   for r in
@@ -401,7 +410,7 @@ begin
        and d.enabled
        and d.kind = 'http'
        and jr.attempt < d.max_attempts
-       and jr.created_at > pg_catalog.now() - interval '1 day'
+       and jr.created_at > now() - interval '1 day'
        and not exists (
          select 1 from jobs.job_run mais_nova
           where mais_nova.job_name = jr.job_name
@@ -415,18 +424,18 @@ begin
 
   -- (c) fio-terra de horario de verao.
   select utc_offset = interval '-3 hours' into v_fuso_ok
-    from pg_catalog.pg_timezone_names
+    from pg_timezone_names
    where name = 'America/Sao_Paulo';
 
-  if not pg_catalog.coalesce(v_fuso_ok, false) then
+  if not coalesce(v_fuso_ok, false) then
     raise warning 'America/Sao_Paulo deixou de ser UTC-3: as agendas em UTC precisam ser revistas';
   end if;
 
-  return pg_catalog.jsonb_build_object(
+  return jsonb_build_object(
     'acted',      (v_expiradas + v_redisparadas) > 0,
     'expired',    v_expiradas,
     'retried',    v_redisparadas,
-    'timezoneOk', pg_catalog.coalesce(v_fuso_ok, false)
+    'timezoneOk', coalesce(v_fuso_ok, false)
   );
 end;
 $$;
@@ -445,14 +454,14 @@ begin
   -- schema cron; se um restore nao reaplicar, este job falha — e falhar e o
   -- comportamento certo, porque aparece no digest.
   delete from cron.job_run_details
-   where start_time < pg_catalog.now() - interval '30 days';
+   where start_time < now() - interval '30 days';
   get diagnostics v_cron = row_count;
 
   delete from jobs.job_run
-   where created_at < pg_catalog.now() - interval '90 days';
+   where created_at < now() - interval '90 days';
   get diagnostics v_ledger = row_count;
 
-  return pg_catalog.jsonb_build_object(
+  return jsonb_build_object(
     'acted',      (v_cron + v_ledger) > 0,
     'cronRows',   v_cron,
     'ledgerRows', v_ledger
