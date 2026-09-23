@@ -35,7 +35,6 @@ app.register(multipart, {
 // Add CORS
 app.register(fastifyCors, {
   origin: (origin, callback) => {
-    console.log({NODE_ENV: env.NODE_ENV, origin})
     if (env.NODE_ENV === 'production' && origin) {
       const allowedOrigins = [env.DEVELOPER_IP, host.web, host.webAdmin]
 
@@ -57,7 +56,6 @@ app.register(fastifyCors, {
       }
     } else {
       // In development, allow all origins
-      console.log("Caiu aqui, all origins allowed");
       callback(null, true)
     }
   },

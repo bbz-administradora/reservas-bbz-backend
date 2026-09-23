@@ -68,7 +68,6 @@ app
 
     console.log(`\n⚡ Server is running on port ${env.API_PORT} ⚡`)
     console.log(`📦 Storage: ${describeStorage()}\n`)
-    console.log({NODE_ENV: env.NODE_ENV})
   })
 
 process.on('SIGINT', gracefulShutdown)
